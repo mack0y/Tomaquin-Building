@@ -1,34 +1,31 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Building2,
-  Users,
-  TrendingUp,
-  TrendingDown,
-  AlertCircle,
-  CreditCard,
-  Zap,
-  Plus,
-  ArrowRight,
-  ArrowUpRight,
-  ArrowDownRight,
-  Clock,
-  CalendarDays,
-  FileText,
-  Bell,
-} from 'lucide-react'
+import { CreditCard, Plus, Zap } from 'lucide-react'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { useNotifications } from '../hooks/useNotifications'
-import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
+import { getCurrentMonth } from '../lib/utils'
 import { useToast } from '../components/ui/Toast'
-import { Card, StatusBadge, Button, Modal, Input, Select } from '../components/ui'
+import { Button, Select } from '../components/ui'
 import { Skeleton, SkeletonCard } from '../components/ui/Skeleton'
-import ConfirmDialog from '../components/ui/ConfirmDialog'
+import NotificationsPanel from '../components/dashboard/NotificationsPanel'
+import SummaryCards from '../components/dashboard/SummaryCards'
+import UnitProfitability from '../components/dashboard/UnitProfitability'
+import RecurringExpensesSection from '../components/dashboard/RecurringExpensesSection'
+import OccupancyByFloor from '../components/dashboard/OccupancyByFloor'
+import RecentPaymentsTable from '../components/dashboard/RecentPaymentsTable'
+import {
+  PaymentModal,
+  ExpenseModal,
+  RecurringTemplateModal,
+  RecurringDeleteDialog,
+  RecurringGenerateDialog,
+  MONTHS,
+  YEARS,
+} from '../components/dashboard/DashboardModals'
 
-const FLOORS = [1, 2, 3]
-const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
-const YEARS = [2025, 2026, 2027, 2028]
-const EXPENSE_CATEGORIES = ['Maintenance', 'Repair', 'Salary', 'Supplies', 'Insurance', 'Tax', 'Utilities (Building)', 'Other']
+const INITIAL_PAYMENT_FORM = { tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], period_month: 0, period_year: 0, status: 'paid', notes: '' }
+const INITIAL_EXPENSE_FORM = { category: '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0] }
+const INITIAL_RECURRING_FORM = { category: '', description: '', amount: '', day_of_month: 1 }
 
 export default function Dashboard() {
   const current = getCurrentMonth()
@@ -38,29 +35,24 @@ export default function Dashboard() {
   const prevMonth = filterMonth === 1 ? 12 : filterMonth - 1
   const prevYear = filterMonth === 1 ? filterYear - 1 : filterYear
 
-  // Quick Action modals
+  // Modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [showRecurringModal, setShowRecurringModal] = useState(false)
   const [editingRecurring, setEditingRecurring] = useState(null)
-  const [recurringForm, setRecurringForm] = useState({ category: '', description: '', amount: '', day_of_month: 1 })
-  const [paymentForm, setPaymentForm] = useState({
-    tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0],
-    period_month: current.month, period_year: current.year, status: 'paid', notes: '',
-  })
-  const [expenseForm, setExpenseForm] = useState({
-    category: '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0],
-  })
+  const [recurringForm, setRecurringForm] = useState(INITIAL_RECURRING_FORM)
+  const [paymentForm, setPaymentForm] = useState({ ...INITIAL_PAYMENT_FORM, period_month: current.month, period_year: current.year })
+  const [expenseForm, setExpenseForm] = useState(INITIAL_EXPENSE_FORM)
+  const [recurringTarget, setRecurringTarget] = useState(null)
+  const [deleteRecurringTarget, setDeleteRecurringTarget] = useState(null)
 
   // Data queries
   const { data: units, loading: unitsLoading, error: unitsError } = useSupabaseQuery('units', {
     order: { column: 'unit_number', ascending: true },
   })
-
   const { data: tenants, error: tenantsError } = useSupabaseQuery('tenants', {
     select: '*, units(unit_number)',
   })
-
   const { data: payments, refetch: refetchPayments, error: paymentsError } = useSupabaseQuery('rent_payments', {
     select: '*, tenants(full_name), units(unit_number)',
     order: { column: 'created_at', ascending: false },
@@ -69,7 +61,6 @@ export default function Dashboard() {
       { column: 'period_year', value: filterYear },
     ],
   })
-
   const { data: allPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
@@ -77,7 +68,6 @@ export default function Dashboard() {
       { column: 'period_year', value: filterYear },
     ],
   })
-
   const { data: prevPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
@@ -85,45 +75,36 @@ export default function Dashboard() {
       { column: 'period_year', value: prevYear },
     ],
   })
-
   const { data: expenses, refetch: refetchExpenses, error: expensesError } = useSupabaseQuery('expenses', {
     order: { column: 'expense_date', ascending: false },
   })
-
   const { data: utilityReadings, error: utilitiesError } = useSupabaseQuery('utility_readings', {
     select: 'unit_id, total_cost, billing_period_month, billing_period_year',
   })
-
   const { data: recurringExpenses, refetch: refetchRecurring, error: recurringError } = useSupabaseQuery('recurring_expenses', {
     order: { column: 'category', ascending: true },
   })
 
+  // Mutations
   const { insert: insertPayment } = useSupabaseMutation('rent_payments')
   const { insert: insertExpense } = useSupabaseMutation('expenses')
   const { insert: insertRecurring, update: updateRecurring, remove: removeRecurring } = useSupabaseMutation('recurring_expenses')
 
-  // Shared notifications hook — pass already-fetched data to avoid duplicate queries
+  // Notifications
   const { notifications } = useNotifications({
     units, tenants, payments: allPayments, utilityReadings, expenses, recurringExpenses,
     filterMonth, filterYear,
   })
 
-  // Generate recurring dialog
-  const [recurringTarget, setRecurringTarget] = useState(null)
-
-  // Check for existing expenses matching each recurring expense for current month
+  // Duplicate check for recurring generation
   const recurringDuplicateCounts = useMemo(() => {
     const counts = {}
     recurringExpenses.forEach((re) => {
       const targetDate = `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
-      const matchCount = expenses.filter((e) =>
-        e.category === re.category && e.expense_date === targetDate
-      ).length
-      counts[re.id] = matchCount
+      counts[re.id] = expenses.filter((e) => e.category === re.category && e.expense_date === targetDate).length
     })
     return counts
   }, [recurringExpenses, expenses, filterMonth, filterYear])
-
 
   // Stats
   const stats = useMemo(() => {
@@ -131,27 +112,16 @@ export default function Dashboard() {
     const occupied = units.filter((u) => u.status === 'occupied').length
     const vacant = units.filter((u) => u.status === 'vacant').length
     const totalTenants = tenants.length
-
     const totalCollected = allPayments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0)
     const totalPending = allPayments.filter((p) => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + Number(p.amount), 0)
     const overdueCount = allPayments.filter((p) => p.status === 'overdue').length
-
     const monthExpenses = expenses
-      .filter((e) => {
-        const d = new Date(e.expense_date)
-        return d.getMonth() + 1 === filterMonth && d.getFullYear() === filterYear
-      })
+      .filter((e) => { const d = new Date(e.expense_date); return d.getMonth() + 1 === filterMonth && d.getFullYear() === filterYear })
       .reduce((sum, e) => sum + Number(e.amount), 0)
-
-    // Previous month
     const prevCollected = prevPayments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0)
     const prevExpenses = expenses
-      .filter((e) => {
-        const d = new Date(e.expense_date)
-        return d.getMonth() + 1 === prevMonth && d.getFullYear() === prevYear
-      })
+      .filter((e) => { const d = new Date(e.expense_date); return d.getMonth() + 1 === prevMonth && d.getFullYear() === prevYear })
       .reduce((sum, e) => sum + Number(e.amount), 0)
-
     const incomeChange = prevCollected > 0 ? (((totalCollected - prevCollected) / prevCollected) * 100).toFixed(0) : null
     const expenseChange = prevExpenses > 0 ? (((monthExpenses - prevExpenses) / prevExpenses) * 100).toFixed(0) : null
 
@@ -161,7 +131,6 @@ export default function Dashboard() {
       totalTenants, totalCollected, totalPending, overdueCount,
       monthExpenses, netCashflow: totalCollected - monthExpenses,
       incomeChange, expenseChange,
-      prevCollected, prevExpenses,
     }
   }, [units, tenants, allPayments, prevPayments, expenses, filterMonth, filterYear, prevMonth, prevYear])
 
@@ -169,18 +138,13 @@ export default function Dashboard() {
   const unitProfitData = useMemo(() => {
     if (!units.length) return []
     return units.filter(u => u.status === 'occupied').map(unit => {
-      // Get tenant for this unit
       const tenant = tenants.find(t => t.unit_id === unit.id)
-      // Utility costs for this unit (current month)
       const unitUtilities = utilityReadings
         .filter(r => r.unit_id === unit.id && r.billing_period_month === filterMonth && r.billing_period_year === filterYear)
         .reduce((sum, r) => sum + Number(r.total_cost || 0), 0)
-
       return {
-        unit_number: unit.unit_number,
-        floor: unit.floor,
-        rent: Number(unit.rent_amount),
-        utilities: unitUtilities,
+        unit_number: unit.unit_number, floor: unit.floor,
+        rent: Number(unit.rent_amount), utilities: unitUtilities,
         profit: Number(unit.rent_amount) - unitUtilities,
         tenant: tenant?.full_name || 'Vacant',
       }
@@ -188,69 +152,49 @@ export default function Dashboard() {
   }, [units, tenants, utilityReadings, filterMonth, filterYear])
 
   const recentPayments = payments.slice(0, 8)
-  const overduePayments = allPayments.filter((p) => p.status === 'overdue')
 
-
-
-  // Quick action handlers
+  // Handlers
   const handlePaymentSubmit = async (e) => {
     e.preventDefault()
     const tenant = tenants.find(t => t.id === paymentForm.tenant_id)
     if (!tenant) return toast.error('Please select a tenant')
-
-    try {
-      await insertPayment({
-        tenant_id: paymentForm.tenant_id,
-        unit_id: tenant.unit_id,
-        amount: parseFloat(paymentForm.amount),
-        payment_date: paymentForm.payment_date,
-        period_month: parseInt(paymentForm.period_month),
-        period_year: parseInt(paymentForm.period_year),
-        status: paymentForm.status,
-        notes: paymentForm.notes,
-      })
-      toast.success('Payment recorded!')
-      setShowPaymentModal(false)
-      setPaymentForm({ tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], period_month: filterMonth, period_year: filterYear, status: 'paid', notes: '' })
-      refetchPayments()
-    } catch (err) {
-      toast.error('Failed: ' + err.message)
-    }
+    const { error } = await insertPayment({
+      tenant_id: paymentForm.tenant_id, unit_id: tenant.unit_id,
+      amount: parseFloat(paymentForm.amount), payment_date: paymentForm.payment_date,
+      period_month: parseInt(paymentForm.period_month), period_year: parseInt(paymentForm.period_year),
+      status: paymentForm.status, notes: paymentForm.notes,
+    })
+    if (error) return toast.error('Failed: ' + error.message)
+    toast.success('Payment recorded!')
+    setShowPaymentModal(false)
+    setPaymentForm({ ...INITIAL_PAYMENT_FORM, period_month: filterMonth, period_year: filterYear })
+    refetchPayments()
   }
 
   const handleExpenseSubmit = async (e) => {
     e.preventDefault()
-    try {
-      await insertExpense({
-        category: expenseForm.category,
-        description: expenseForm.description,
-        amount: parseFloat(expenseForm.amount),
-        expense_date: expenseForm.expense_date,
-      })
-      toast.success('Expense added!')
-      setShowExpenseModal(false)
-      setExpenseForm({ category: '', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0] })
-      refetchExpenses()
-    } catch (err) {
-      toast.error('Failed: ' + err.message)
-    }
+    const { error } = await insertExpense({
+      category: expenseForm.category, description: expenseForm.description,
+      amount: parseFloat(expenseForm.amount), expense_date: expenseForm.expense_date,
+    })
+    if (error) return toast.error('Failed: ' + error.message)
+    toast.success('Expense added!')
+    setShowExpenseModal(false)
+    setExpenseForm(INITIAL_EXPENSE_FORM)
+    refetchExpenses()
   }
 
   const handleGenerateRecurring = async () => {
     if (!recurringTarget) return
-    try {
-      await insertExpense({
-        category: recurringTarget.category,
-        description: recurringTarget.description,
-        amount: recurringTarget.amount,
-        expense_date: `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(recurringTarget.day_of_month).padStart(2, '0')}`,
-      })
-      toast.success(`${recurringTarget.description || recurringTarget.category} generated!`)
-      refetchExpenses()
-    } catch (err) {
-      toast.error('Failed: ' + err.message)
-    }
+    const { error } = await insertExpense({
+      category: recurringTarget.category, description: recurringTarget.description,
+      amount: recurringTarget.amount,
+      expense_date: `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(recurringTarget.day_of_month).padStart(2, '0')}`,
+    })
+    if (error) return toast.error('Failed: ' + error.message)
+    toast.success(`${recurringTarget.description || recurringTarget.category} generated!`)
     setRecurringTarget(null)
+    refetchExpenses()
   }
 
   const handleRecurringSubmit = async (e) => {
@@ -258,10 +202,8 @@ export default function Dashboard() {
     if (!recurringForm.category) return toast.error('Please select a category')
     if (!recurringForm.amount) return toast.error('Please enter an amount')
     const payload = {
-      category: recurringForm.category,
-      description: recurringForm.description,
-      amount: parseFloat(recurringForm.amount),
-      day_of_month: parseInt(recurringForm.day_of_month),
+      category: recurringForm.category, description: recurringForm.description,
+      amount: parseFloat(recurringForm.amount), day_of_month: parseInt(recurringForm.day_of_month),
     }
     if (editingRecurring) {
       const { error } = await updateRecurring(editingRecurring.id, payload)
@@ -274,11 +216,9 @@ export default function Dashboard() {
     }
     setShowRecurringModal(false)
     setEditingRecurring(null)
-    setRecurringForm({ category: '', description: '', amount: '', day_of_month: 1 })
+    setRecurringForm(INITIAL_RECURRING_FORM)
     refetchRecurring()
   }
-
-  const [deleteRecurringTarget, setDeleteRecurringTarget] = useState(null)
 
   const handleDeleteRecurring = async () => {
     if (!deleteRecurringTarget) return
@@ -289,6 +229,7 @@ export default function Dashboard() {
     refetchRecurring()
   }
 
+  // Loading state
   if (unitsLoading) {
     return (
       <div className="space-y-6">
@@ -309,15 +250,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Error Banner */}
       {queryError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-danger">
-            Failed to load data: {queryError}
-          </p>
+          <p className="text-sm font-medium text-danger">Failed to load data: {queryError}</p>
         </div>
       )}
-      {/* Date Range Filter */}
+
+      {/* Date Range Filter + Quick Actions */}
       <div className="flex flex-wrap items-center gap-3">
         <Select id="dashboard-month" name="dashboard-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
           {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -327,387 +266,45 @@ export default function Dashboard() {
         </Select>
         <div className="flex-1" />
         <Button onClick={() => setShowPaymentModal(true)}>
-          <CreditCard className="h-4 w-4" />
-          Record Payment
+          <CreditCard className="h-4 w-4" /> Record Payment
         </Button>
         <Button variant="secondary" onClick={() => setShowExpenseModal(true)}>
-          <Plus className="h-4 w-4" />
-          Add Expense
+          <Plus className="h-4 w-4" /> Add Expense
         </Button>
         <Link to="/utilities">
           <Button variant="secondary">
-            <Zap className="h-4 w-4" />
-            Record Reading
+            <Zap className="h-4 w-4" /> Record Reading
           </Button>
         </Link>
       </div>
 
-      {/* Summary Cards with Month Comparison */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card>
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-primary" />
-            <p className="text-sm text-text-secondary">Total Units</p>
-          </div>
-          <p className="mt-1 text-2xl font-bold text-text-primary">{stats.totalUnits}</p>
-          <p className="text-xs text-text-muted">
-            {stats.occupied} occupied · {stats.vacant} vacant · {stats.occupancyRate}% rate
-          </p>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-info" />
-            <p className="text-sm text-text-secondary">Total Tenants</p>
-          </div>
-          <p className="mt-1 text-2xl font-bold text-text-primary">{stats.totalTenants}</p>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-success" />
-            <p className="text-sm text-text-secondary">Collected</p>
-          </div>
-          <p className="mt-1 text-2xl font-bold text-success">{formatCurrency(stats.totalCollected)}</p>
-          {stats.incomeChange !== null && (
-            <p className={`text-xs flex items-center gap-1 ${Number(stats.incomeChange) >= 0 ? 'text-success' : 'text-danger'}`}>
-              {Number(stats.incomeChange) >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-              {Math.abs(Number(stats.incomeChange))}% vs last month
-            </p>
-          )}
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-danger" />
-            <p className="text-sm text-text-secondary">Net Cashflow</p>
-          </div>
-          <p className={`mt-1 text-2xl font-bold ${stats.netCashflow >= 0 ? 'text-success' : 'text-danger'}`}>
-            {formatCurrency(stats.netCashflow)}
-          </p>
-          <p className="text-xs text-text-muted">
-            Expenses: {formatCurrency(stats.monthExpenses)}
-            {stats.expenseChange !== null && (
-              <span className={`ml-1 ${Number(stats.expenseChange) >= 0 ? 'text-danger' : 'text-success'}`}>
-                {Number(stats.expenseChange) >= 0 ? '↑' : '↓'}{Math.abs(Number(stats.expenseChange))}%
-              </span>
-            )}
-          </p>
-        </Card>
-      </div>
+      <SummaryCards stats={stats} />
+      <NotificationsPanel notifications={notifications} />
+      <UnitProfitability unitProfitData={unitProfitData} filterMonth={filterMonth} filterYear={filterYear} />
 
-      {/* Notifications Panel */}
-      {notifications.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Bell className="h-4 w-4 text-text-secondary" />
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
-              Action Required ({notifications.length})
-            </h3>
-          </div>
-          <div className="space-y-2">
-            {notifications.map((n) => {
-              const severityStyles = {
-                critical: 'border-red-200 bg-red-50 text-red-800',
-                warning: 'border-amber-200 bg-amber-50 text-amber-800',
-                info: 'border-blue-200 bg-blue-50 text-blue-800',
-              }
-              const iconStyles = {
-                critical: 'text-red-500',
-                warning: 'text-amber-500',
-                info: 'text-blue-500',
-              }
-              const buttonStyles = {
-                critical: 'text-red-700 hover:bg-red-100',
-                warning: 'text-amber-700 hover:bg-amber-100',
-                info: 'text-blue-700 hover:bg-blue-100',
-              }
-              const Icon = n.icon
-              return (
-                <div key={n.id} className={`flex items-start gap-3 rounded-lg border p-3 ${severityStyles[n.severity]}`}>
-                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconStyles[n.severity]}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">{n.title}</p>
-                    <p className="text-xs opacity-80 truncate">{n.description}</p>
-                  </div>
-                  <Link to={n.action} className="shrink-0">
-                    <Button variant="ghost" size="sm" className={`text-xs ${buttonStyles[n.severity]}`}>
-                      {n.actionLabel} <ArrowRight className="ml-1 h-3 w-3" />
-                    </Button>
-                  </Link>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Unit Profit View */}
-      <div>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
-          Unit Profitability — {formatMonthYear(filterMonth, filterYear)}
-        </h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          {unitProfitData.length === 0 ? (
-            <Card className="col-span-3">
-              <p className="py-4 text-center text-text-muted">No occupied units with data</p>
-            </Card>
-          ) : (
-            unitProfitData.map((u) => (
-              <Card key={u.unit_number}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-text-primary">Unit {u.unit_number}</p>
-                    <p className="text-xs text-text-muted">{u.tenant}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-text-muted">Profit</p>
-                    <p className={`font-bold ${u.profit >= 0 ? 'text-success' : 'text-danger'}`}>
-                      {formatCurrency(u.profit)}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-1 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Rent</span>
-                    <span className="text-success">+{formatCurrency(u.rent)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Utilities</span>
-                    <span className="text-danger">-{formatCurrency(u.utilities)}</span>
-                  </div>
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
-      </div>
-
-      {/* Recurring Expenses */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
-            Recurring Expenses
-          </h3>
-          <Button variant="ghost" size="sm" onClick={() => {
-            setEditingRecurring(null)
-            setRecurringForm({ category: '', description: '', amount: '', day_of_month: 1 })
-            setShowRecurringModal(true)
-          }}>
-            <Plus className="h-3.5 w-3.5" />
-            Add Template
-          </Button>
-        </div>
-        {recurringExpenses.length === 0 ? (
-          <Card>
-            <p className="py-4 text-center text-text-muted">No recurring expenses configured. Add a template to get started.</p>
-          </Card>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {recurringExpenses.map((re) => (
-              <Card key={re.id} className="group relative">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-text-primary">{re.description || re.category}</p>
-                    <p className="text-xs text-text-muted">{re.category} · Day {re.day_of_month}</p>
-                  </div>
-                  <span className="text-sm font-bold text-danger">{formatCurrency(re.amount)}</span>
-                </div>
-                <div className="mt-3 flex gap-2 border-t border-border pt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <Button variant="ghost" size="sm" onClick={() => setRecurringTarget(re)}>
-                    <Plus className="h-3.5 w-3.5" />
-                    Generate
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => {
-                    setEditingRecurring(re)
-                    setRecurringForm({ category: re.category, description: re.description || '', amount: re.amount, day_of_month: re.day_of_month })
-                    setShowRecurringModal(true)
-                  }}>
-                    Edit
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setDeleteRecurringTarget(re)}>
-                    <span className="text-danger">Delete</span>
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Occupancy by Floor */}
-      <div>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
-          Occupancy by Floor
-        </h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          {FLOORS.map((floor) => {
-            const floorUnits = units.filter((u) => u.floor === floor)
-            const floorOccupied = floorUnits.filter((u) => u.status === 'occupied').length
-            const floorVacant = floorUnits.filter((u) => u.status === 'vacant').length
-            const rate = floorUnits.length > 0 ? ((floorOccupied / floorUnits.length) * 100).toFixed(0) : 0
-            return (
-              <Card key={floor}>
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-text-primary">Floor {floor}</p>
-                  <span className="text-sm text-text-secondary">{rate}% occupied</span>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  {floorUnits.map((u) => (
-                    <div
-                      key={u.id}
-                      className={`flex h-8 w-8 items-center justify-center rounded text-xs font-medium ${
-                        u.status === 'occupied'
-                          ? 'bg-green-100 text-green-700'
-                          : u.status === 'vacant'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}
-                      title={`Unit ${u.unit_number} - ${u.status}`}
-                    >
-                      {u.unit_number.slice(-2)}
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-text-muted">
-                  {floorOccupied} occupied · {floorVacant} vacant
-                </p>
-              </Card>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Recent Payments */}
-      <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-semibold text-text-primary">
-            Recent Payments — {formatMonthYear(filterMonth, filterYear)}
-          </h3>
-          <Link to="/payments">
-            <Button variant="ghost" size="sm">
-              View all <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          </Link>
-        </div>
-        {recentPayments.length === 0 ? (
-          <p className="py-6 text-center text-text-muted">No payments recorded this month</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-2 text-left text-xs font-medium text-text-secondary">Tenant</th>
-                  <th className="pb-2 text-left text-xs font-medium text-text-secondary">Unit</th>
-                  <th className="pb-2 text-left text-xs font-medium text-text-secondary">Amount</th>
-                  <th className="pb-2 text-left text-xs font-medium text-text-secondary">Date</th>
-                  <th className="pb-2 text-left text-xs font-medium text-text-secondary">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentPayments.map((p) => (
-                  <tr key={p.id} className="border-b border-border last:border-b-0">
-                    <td className="py-2.5 text-sm font-medium text-text-primary">{p.tenants?.full_name || '—'}</td>
-                    <td className="py-2.5 text-sm text-text-secondary">{p.units?.unit_number || '—'}</td>
-                    <td className="py-2.5 text-sm font-medium text-text-primary">{formatCurrency(p.amount)}</td>
-                    <td className="py-2.5 text-sm text-text-secondary">{p.payment_date || '—'}</td>
-                    <td className="py-2.5"><StatusBadge status={p.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      {/* Quick Payment Modal */}
-      <Modal isOpen={showPaymentModal} onClose={() => setShowPaymentModal(false)} title="Record Payment">
-        <form onSubmit={handlePaymentSubmit} className="space-y-4">
-          <Select label="Tenant" value={paymentForm.tenant_id} onChange={(e) => setPaymentForm({ ...paymentForm, tenant_id: e.target.value })} required>
-            <option value="">Select tenant</option>
-            {tenants.map((t) => (
-              <option key={t.id} value={t.id}>{t.full_name} — Unit {t.units?.unit_number || 'Unassigned'}</option>
-            ))}
-          </Select>
-          <Input label="Amount (₱)" type="number" min="0" step="100" value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} required />
-          <Input label="Date" type="date" value={paymentForm.payment_date} onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })} />
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Period" value={paymentForm.period_month} onChange={(e) => setPaymentForm({ ...paymentForm, period_month: e.target.value })}>
-              {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </Select>
-            <Select label="Year" value={paymentForm.period_year} onChange={(e) => setPaymentForm({ ...paymentForm, period_year: e.target.value })}>
-              {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-            </Select>
-          </div>
-          <Input label="Notes" placeholder="Optional notes..." value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setShowPaymentModal(false)}>Cancel</Button>
-            <Button type="submit">Record Payment</Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Quick Expense Modal */}
-      <Modal isOpen={showExpenseModal} onClose={() => setShowExpenseModal(false)} title="Add Expense">
-        <form onSubmit={handleExpenseSubmit} className="space-y-4">
-          <Select label="Category" value={expenseForm.category} onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })} required>
-            <option value="">Select category</option>
-            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Input label="Description" placeholder="Optional description..." value={expenseForm.description} onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })} />
-          <Input label="Amount (₱)" type="number" min="0" step="100" value={expenseForm.amount} onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })} required />
-          <Input label="Date" type="date" value={expenseForm.expense_date} onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })} required />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setShowExpenseModal(false)}>Cancel</Button>
-            <Button type="submit">Add Expense</Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Recurring Delete Confirm */}
-      <ConfirmDialog
-        isOpen={!!deleteRecurringTarget}
-        onClose={() => setDeleteRecurringTarget(null)}
-        onConfirm={handleDeleteRecurring}
-        title="Delete Recurring Template"
-        message={`Are you sure you want to delete ${deleteRecurringTarget?.description || deleteRecurringTarget?.category}? This cannot be undone.`}
-        confirmLabel="Delete"
+      <RecurringExpensesSection
+        recurringExpenses={recurringExpenses}
+        onAdd={() => { setEditingRecurring(null); setRecurringForm(INITIAL_RECURRING_FORM); setShowRecurringModal(true) }}
+        onEdit={(re) => { setEditingRecurring(re); setRecurringForm({ category: re.category, description: re.description || '', amount: re.amount, day_of_month: re.day_of_month }); setShowRecurringModal(true) }}
+        onDelete={(re) => setDeleteRecurringTarget(re)}
+        onGenerate={(re) => setRecurringTarget(re)}
       />
 
-      {/* Recurring Template Modal */}
-      <Modal isOpen={showRecurringModal} onClose={() => { setShowRecurringModal(false); setEditingRecurring(null) }} title={editingRecurring ? 'Edit Recurring Template' : 'Add Recurring Template'}>
-        <form onSubmit={handleRecurringSubmit} className="space-y-4">
-          <Select label="Category" value={recurringForm.category} onChange={(e) => setRecurringForm({ ...recurringForm, category: e.target.value })} required>
-            <option value="">Select category</option>
-            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Input label="Description" placeholder="Optional description..." value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} />
-          <Input label="Amount (₱)" type="number" min="0" step="100" value={recurringForm.amount} onChange={(e) => setRecurringForm({ ...recurringForm, amount: e.target.value })} required />
-          <Input label="Day of Month" type="number" min="1" max="31" value={recurringForm.day_of_month} onChange={(e) => setRecurringForm({ ...recurringForm, day_of_month: e.target.value })} required />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => { setShowRecurringModal(false); setEditingRecurring(null) }}>Cancel</Button>
-            <Button type="submit">{editingRecurring ? 'Save Changes' : 'Add Template'}</Button>
-          </div>
-        </form>
-      </Modal>
+      <OccupancyByFloor units={units} />
+      <RecentPaymentsTable recentPayments={recentPayments} filterMonth={filterMonth} filterYear={filterYear} />
 
-      {/* Recurring Expense Confirm */}
-      <ConfirmDialog
-        isOpen={!!recurringTarget}
-        onClose={() => setRecurringTarget(null)}
-        onConfirm={handleGenerateRecurring}
-        title="Generate Recurring Expense"
-        message={
-          recurringTarget && (
-            <span>
-              Generate {formatCurrency(recurringTarget.amount)} — {recurringTarget.description || recurringTarget.category} for {formatMonthYear(current.month, current.year)}?
-              {(recurringDuplicateCounts[recurringTarget.id] || 0) > 0 && (
-                <span className="mt-2 block rounded-md bg-yellow-50 p-2 text-sm text-yellow-800">
-                  ⚠️ {recurringDuplicateCounts[recurringTarget.id]} matching expense{(recurringDuplicateCounts[recurringTarget.id]) > 1 ? 's' : ''} already {(recurringDuplicateCounts[recurringTarget.id]) === 1 ? 'exists' : 'exist'} for this category on this date.
-                </span>
-              )}
-            </span>
-          )
-        }
-        confirmLabel={(recurringDuplicateCounts[recurringTarget?.id] || 0) > 0 ? 'Generate Anyway' : 'Generate'}
-      />
+      {/* Modals */}
+      <PaymentModal isOpen={showPaymentModal} onClose={() => setShowPaymentModal(false)} onSubmit={handlePaymentSubmit}
+        paymentForm={paymentForm} setPaymentForm={setPaymentForm} tenants={tenants} filterMonth={filterMonth} filterYear={filterYear} />
+      <ExpenseModal isOpen={showExpenseModal} onClose={() => setShowExpenseModal(false)} onSubmit={handleExpenseSubmit}
+        expenseForm={expenseForm} setExpenseForm={setExpenseForm} />
+      <RecurringTemplateModal isOpen={showRecurringModal} onClose={() => { setShowRecurringModal(false); setEditingRecurring(null) }}
+        onSubmit={handleRecurringSubmit} recurringForm={recurringForm} setRecurringForm={setRecurringForm} editingRecurring={editingRecurring} />
+      <RecurringDeleteDialog isOpen={!!deleteRecurringTarget} onClose={() => setDeleteRecurringTarget(null)}
+        onConfirm={handleDeleteRecurring} target={deleteRecurringTarget} />
+      <RecurringGenerateDialog isOpen={!!recurringTarget} onClose={() => setRecurringTarget(null)}
+        onConfirm={handleGenerateRecurring} target={recurringTarget} duplicateCounts={recurringDuplicateCounts}
+        filterMonth={filterMonth} filterYear={filterYear} />
     </div>
   )
 }
