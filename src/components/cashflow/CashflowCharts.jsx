@@ -4,11 +4,12 @@ import { formatCurrency } from '../../lib/utils'
 
 const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6']
 
-export default function CashflowCharts({ monthlyTrend, expenseBreakdown, filterYear }) {
+export default function CashflowCharts({ monthlyTrend, expenseBreakdown, filterYear, isCustomRange, periodLabel }) {
+  const chartLabel = isCustomRange ? periodLabel : filterYear
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card>
-        <h3 className="mb-4 font-semibold text-text-primary">Monthly Trend ({filterYear})</h3>
+        <h3 className="mb-4 font-semibold text-text-primary">Monthly Trend ({chartLabel})</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={monthlyTrend}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
