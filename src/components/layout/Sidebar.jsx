@@ -51,7 +51,7 @@ export default function Sidebar() {
         </div>
         <button
           onClick={() => setSidebarOpen(false)}
-          className="rounded-lg p-1 text-text-muted hover:bg-sidebar-hover hover:text-white lg:hidden"
+          className="rounded-lg p-1 text-text-muted hover:bg-sidebar-hover hover:text-white md:hidden"
         >
           <X className="h-5 w-5" />
         </button>
@@ -97,13 +97,13 @@ export default function Sidebar() {
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:w-64 lg:shrink-0">
+      <aside className="hidden md:flex md:w-64 md:shrink-0">
         {sidebarContent}
       </aside>
 
       {/* Mobile sidebar drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out md:hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
