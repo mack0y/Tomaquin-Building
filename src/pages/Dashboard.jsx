@@ -94,6 +94,19 @@ export default function Dashboard() {
   // Generate recurring dialog
   const [recurringTarget, setRecurringTarget] = useState(null)
 
+  // Check for existing expenses matching each recurring expense for current month
+  const recurringDuplicateCounts = useMemo(() => {
+    const counts = {}
+    recurringExpenses.forEach((re) => {
+      const targetDate = `${current.year}-${String(current.month).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
+      const matchCount = expenses.filter((e) =>
+        e.category === re.category && e.expense_date === targetDate
+      ).length
+      counts[re.id] = matchCount
+    })
+    return counts
+  }, [recurringExpenses, expenses, current])
+
 
   // Stats
   const stats = useMemo(() => {
@@ -539,8 +552,19 @@ export default function Dashboard() {
         onClose={() => setRecurringTarget(null)}
         onConfirm={handleGenerateRecurring}
         title="Generate Recurring Expense"
-        message={`Generate ${recurringTarget ? formatCurrency(recurringTarget.amount) : ''} — ${recurringTarget?.description || recurringTarget?.category || ''} for ${formatMonthYear(current.month, current.year)}?`}
-        confirmLabel="Generate"
+        message={
+          recurringTarget && (
+            <span>
+              Generate {formatCurrency(recurringTarget.amount)} — {recurringTarget.description || recurringTarget.category} for {formatMonthYear(current.month, current.year)}?
+              {(recurringDuplicateCounts[recurringTarget.id] || 0) > 0 && (
+                <span className="mt-2 block rounded-md bg-yellow-50 p-2 text-sm text-yellow-800">
+                  ⚠️ {recurringDuplicateCounts[recurringTarget.id]} matching expense{(recurringDuplicateCounts[recurringTarget.id]) > 1 ? 's' : ''} already {(recurringDuplicateCounts[recurringTarget.id]) === 1 ? 'exists' : 'exist'} for this category on this date.
+                </span>
+              )}
+            </span>
+          )
+        }
+        confirmLabel={(recurringDuplicateCounts[recurringTarget?.id] || 0) > 0 ? 'Generate Anyway' : 'Generate'}
       />
     </div>
   )
