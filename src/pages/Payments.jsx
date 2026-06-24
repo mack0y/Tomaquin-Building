@@ -4,6 +4,7 @@ import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { useToast } from '../components/ui/Toast'
 import { Card, CardTitle, Button, StatusBadge, Modal, Input, Select, EmptyState } from '../components/ui'
+import { SkeletonTable } from '../components/ui/Skeleton'
 
 const STATUSES = ['paid', 'pending', 'overdue', 'partial']
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
@@ -175,9 +176,9 @@ export default function Payments() {
         </Button>
       </div>
 
-      {/* Payments Table */}
+      {/* Loading Skeleton */}
       {loading ? (
-        <div className="py-12 text-center text-text-secondary">Loading payments...</div>
+        <SkeletonTable rows={6} cols={7} />
       ) : payments.length === 0 ? (
         <EmptyState
           icon={CreditCard}

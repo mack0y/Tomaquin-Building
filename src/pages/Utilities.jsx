@@ -3,6 +3,7 @@ import { Zap, Droplets, Plus, Edit2 } from 'lucide-react'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { Card, CardTitle, Button, Modal, Input, Select, EmptyState } from '../components/ui'
+import { SkeletonTable } from '../components/ui/Skeleton'
 
 const UTILITY_TYPES = [
   { value: 'electric', label: 'Electric', icon: Zap, color: 'text-yellow-500' },
@@ -158,9 +159,9 @@ export default function Utilities() {
         </Button>
       </div>
 
-      {/* Readings Table */}
+      {/* Loading Skeleton */}
       {loading ? (
-        <div className="py-12 text-center text-text-secondary">Loading readings...</div>
+        <SkeletonTable rows={6} cols={7} />
       ) : readings.length === 0 ? (
         <EmptyState
           icon={activeIcon?.icon || Zap}

@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { Card, Button, Modal, Input, Select, EmptyState } from '../components/ui'
+import { Skeleton, SkeletonCard, SkeletonTable } from '../components/ui/Skeleton'
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
 const YEARS = [2025, 2026, 2027, 2028]
@@ -23,7 +24,7 @@ export default function Cashflow() {
   })
 
   // Income: rent payments for the period
-  const { data: payments } = useSupabaseQuery('rent_payments', {
+  const { data: payments, loading: loadingPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
       { column: 'period_month', value: filterMonth },
@@ -40,7 +41,7 @@ export default function Cashflow() {
   })
 
   // Expenses for the period (all expenses, filtered client-side by month/year)
-  const { data: expenses, refetch: refetchExpenses } = useSupabaseQuery('expenses', {
+  const { data: expenses, loading: loadingExpenses, refetch: refetchExpenses } = useSupabaseQuery('expenses', {
     order: { column: 'expense_date', ascending: false },
   })
 
@@ -99,6 +100,8 @@ export default function Cashflow() {
     return Object.entries(byCategory).map(([name, value]) => ({ name, value }))
   }, [filteredExpenses])
 
+  const loading = loadingPayments || loadingExpenses
+
   const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6']
 
   const handleExpenseSubmit = async (e) => {
@@ -142,6 +145,26 @@ export default function Cashflow() {
 
   return (
     <div className="space-y-6">
+      {loading ? (
+        <>
+          {/* Summary Cards Skeleton */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+          {/* Charts Skeleton */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Card key={i}>
+                <Skeleton className="mb-4 h-5 w-40" />
+                <Skeleton className="h-[300px] w-full" />
+              </Card>
+            ))}
+          </div>
+          {/* Table Skeleton */}
+          <SkeletonTable rows={5} cols={5} />
+        </>
+      ) : (
+      <>
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
@@ -347,6 +370,8 @@ export default function Cashflow() {
         message={`Are you sure you want to delete ${deleteTarget?.category} — ${formatCurrency(deleteTarget?.amount || 0)}? This cannot be undone.`}
         confirmLabel="Delete Expense"
       />
+      </>
+      )}
     </div>
   )
 }

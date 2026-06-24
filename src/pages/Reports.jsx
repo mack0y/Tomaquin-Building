@@ -4,6 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useSupabaseQuery } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { Card, Button, Select } from '../components/ui'
+import { Skeleton, SkeletonCard, SkeletonTable } from '../components/ui/Skeleton'
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
 const YEARS = [2025, 2026, 2027, 2028]
@@ -16,18 +17,18 @@ export default function Reports() {
   const [filterYear, setFilterYear] = useState(current.year)
 
   // All payments for the year
-  const { data: allPayments } = useSupabaseQuery('rent_payments', {
+  const { data: allPayments, loading: loadingPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, status, period_month, period_year',
     filters: [{ column: 'period_year', value: filterYear }],
   })
 
   // All expenses for the year
-  const { data: allExpenses } = useSupabaseQuery('expenses', {
+  const { data: allExpenses, loading: loadingExpenses } = useSupabaseQuery('expenses', {
     select: 'amount, category, expense_date',
   })
 
   // Units
-  const { data: units } = useSupabaseQuery('units', {
+  const { data: units, loading: loadingUnits } = useSupabaseQuery('units', {
     select: 'id, status, floor',
   })
 
@@ -108,8 +109,34 @@ export default function Reports() {
     URL.revokeObjectURL(url)
   }
 
+  const loading = loadingPayments || loadingExpenses || loadingUnits
+
   return (
     <div className="space-y-6">
+      {loading ? (
+        <>
+          {/* Filters Skeleton */}
+          <div className="flex gap-3">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-28" />)}
+          </div>
+          {/* Summary Cards Skeleton */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+          {/* Charts Skeleton */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i}>
+                <Skeleton className="mb-4 h-5 w-48" />
+                <Skeleton className="h-[300px] w-full" />
+              </Card>
+            ))}
+          </div>
+          {/* Table Skeleton */}
+          <SkeletonTable rows={12} cols={5} />
+        </>
+      ) : (
+      <>
       {/* Report Type & Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
@@ -317,6 +344,8 @@ export default function Reports() {
           </table>
         </div>
       </Card>
+      </>
+      )}
     </div>
   )
 }
