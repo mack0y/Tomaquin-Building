@@ -27,13 +27,18 @@ const EXPENSE_CATEGORIES = ['Maintenance', 'Repair', 'Salary', 'Supplies', 'Insu
 
 export default function Dashboard() {
   const current = getCurrentMonth()
-  const prevMonth = current.month === 1 ? 12 : current.month - 1
-  const prevYear = current.month === 1 ? current.year - 1 : current.year
   const toast = useToast()
+  const [filterMonth, setFilterMonth] = useState(current.month)
+  const [filterYear, setFilterYear] = useState(current.year)
+  const prevMonth = filterMonth === 1 ? 12 : filterMonth - 1
+  const prevYear = filterMonth === 1 ? filterYear - 1 : filterYear
 
   // Quick Action modals
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [showRecurringModal, setShowRecurringModal] = useState(false)
+  const [editingRecurring, setEditingRecurring] = useState(null)
+  const [recurringForm, setRecurringForm] = useState({ category: '', description: '', amount: '', day_of_month: 1 })
   const [paymentForm, setPaymentForm] = useState({
     tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0],
     period_month: current.month, period_year: current.year, status: 'paid', notes: '',
@@ -55,16 +60,16 @@ export default function Dashboard() {
     select: '*, tenants(full_name), units(unit_number)',
     order: { column: 'created_at', ascending: false },
     filters: [
-      { column: 'period_month', value: current.month },
-      { column: 'period_year', value: current.year },
+      { column: 'period_month', value: filterMonth },
+      { column: 'period_year', value: filterYear },
     ],
   })
 
   const { data: allPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
-      { column: 'period_month', value: current.month },
-      { column: 'period_year', value: current.year },
+      { column: 'period_month', value: filterMonth },
+      { column: 'period_year', value: filterYear },
     ],
   })
 
@@ -90,6 +95,7 @@ export default function Dashboard() {
 
   const { insert: insertPayment } = useSupabaseMutation('rent_payments')
   const { insert: insertExpense } = useSupabaseMutation('expenses')
+  const { insert: insertRecurring, update: updateRecurring, remove: removeRecurring } = useSupabaseMutation('recurring_expenses')
 
   // Generate recurring dialog
   const [recurringTarget, setRecurringTarget] = useState(null)
@@ -98,14 +104,14 @@ export default function Dashboard() {
   const recurringDuplicateCounts = useMemo(() => {
     const counts = {}
     recurringExpenses.forEach((re) => {
-      const targetDate = `${current.year}-${String(current.month).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
+      const targetDate = `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
       const matchCount = expenses.filter((e) =>
         e.category === re.category && e.expense_date === targetDate
       ).length
       counts[re.id] = matchCount
     })
     return counts
-  }, [recurringExpenses, expenses, current])
+  }, [recurringExpenses, expenses, filterMonth, filterYear])
 
 
   // Stats
@@ -122,7 +128,7 @@ export default function Dashboard() {
     const monthExpenses = expenses
       .filter((e) => {
         const d = new Date(e.expense_date)
-        return d.getMonth() + 1 === current.month && d.getFullYear() === current.year
+        return d.getMonth() + 1 === filterMonth && d.getFullYear() === filterYear
       })
       .reduce((sum, e) => sum + Number(e.amount), 0)
 
@@ -146,7 +152,7 @@ export default function Dashboard() {
       incomeChange, expenseChange,
       prevCollected, prevExpenses,
     }
-  }, [units, tenants, allPayments, prevPayments, expenses, current, prevMonth, prevYear])
+  }, [units, tenants, allPayments, prevPayments, expenses, filterMonth, filterYear, prevMonth, prevYear])
 
   // Unit profit data
   const unitProfitData = useMemo(() => {
@@ -156,7 +162,7 @@ export default function Dashboard() {
       const tenant = tenants.find(t => t.unit_id === unit.id)
       // Utility costs for this unit (current month)
       const unitUtilities = utilityReadings
-        .filter(r => r.unit_id === unit.id && r.billing_period_month === current.month && r.billing_period_year === current.year)
+        .filter(r => r.unit_id === unit.id && r.billing_period_month === filterMonth && r.billing_period_year === filterYear)
         .reduce((sum, r) => sum + Number(r.total_cost || 0), 0)
 
       return {
@@ -168,7 +174,7 @@ export default function Dashboard() {
         tenant: tenant?.full_name || 'Vacant',
       }
     })
-  }, [units, tenants, utilityReadings, current])
+  }, [units, tenants, utilityReadings, filterMonth, filterYear])
 
   const recentPayments = payments.slice(0, 8)
   const overduePayments = allPayments.filter((p) => p.status === 'overdue')
@@ -224,7 +230,7 @@ export default function Dashboard() {
         category: recurringTarget.category,
         description: recurringTarget.description,
         amount: recurringTarget.amount,
-        expense_date: `${current.year}-${String(current.month).padStart(2, '0')}-${String(recurringTarget.day_of_month).padStart(2, '0')}`,
+        expense_date: `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(recurringTarget.day_of_month).padStart(2, '0')}`,
       })
       toast.success(`${recurringTarget.description || recurringTarget.category} generated!`)
       refetchExpenses()
@@ -232,6 +238,36 @@ export default function Dashboard() {
       toast.error('Failed: ' + err.message)
     }
     setRecurringTarget(null)
+  }
+
+  const handleRecurringSubmit = async (e) => {
+    e.preventDefault()
+    const payload = {
+      category: recurringForm.category,
+      description: recurringForm.description,
+      amount: parseFloat(recurringForm.amount),
+      day_of_month: parseInt(recurringForm.day_of_month),
+    }
+    if (editingRecurring) {
+      const { error } = await updateRecurring(editingRecurring.id, payload)
+      if (error) return toast.error('Failed to update: ' + error.message)
+      toast.success('Template updated!')
+    } else {
+      const { error } = await insertRecurring(payload)
+      if (error) return toast.error('Failed to add: ' + error.message)
+      toast.success('Template added!')
+    }
+    setShowRecurringModal(false)
+    setEditingRecurring(null)
+    setRecurringForm({ category: '', description: '', amount: '', day_of_month: 1 })
+    refetchRecurring()
+  }
+
+  const handleDeleteRecurring = async (recurring) => {
+    const { error } = await removeRecurring(recurring.id)
+    if (error) return toast.error('Failed to delete: ' + error.message)
+    toast.success('Template deleted')
+    refetchRecurring()
   }
 
   if (unitsLoading) {
@@ -262,8 +298,15 @@ export default function Dashboard() {
           </p>
         </div>
       )}
-      {/* Quick Actions Bar */}
-      <div className="flex flex-wrap gap-3">
+      {/* Date Range Filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select id="dashboard-month" name="dashboard-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+          {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </Select>
+        <Select id="dashboard-year" name="dashboard-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+        </Select>
+        <div className="flex-1" />
         <Button onClick={() => setShowPaymentModal(true)}>
           <CreditCard className="h-4 w-4" />
           Record Payment
@@ -354,7 +397,7 @@ export default function Dashboard() {
       {/* Unit Profit View */}
       <div>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
-          Unit Profitability — {formatMonthYear(current.month, current.year)}
+          Unit Profitability — {formatMonthYear(filterMonth, filterYear)}
         </h3>
         <div className="grid gap-4 md:grid-cols-3">
           {unitProfitData.length === 0 ? (
@@ -393,29 +436,56 @@ export default function Dashboard() {
       </div>
 
       {/* Recurring Expenses */}
-      {recurringExpenses.length > 0 && (
-        <div>
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-text-secondary">
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
             Recurring Expenses
           </h3>
+          <Button variant="ghost" size="sm" onClick={() => {
+            setEditingRecurring(null)
+            setRecurringForm({ category: '', description: '', amount: '', day_of_month: 1 })
+            setShowRecurringModal(true)
+          }}>
+            <Plus className="h-3.5 w-3.5" />
+            Add Template
+          </Button>
+        </div>
+        {recurringExpenses.length === 0 ? (
+          <Card>
+            <p className="py-4 text-center text-text-muted">No recurring expenses configured. Add a template to get started.</p>
+          </Card>
+        ) : (
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             {recurringExpenses.map((re) => (
-              <Card key={re.id} className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{re.description || re.category}</p>
-                  <p className="text-xs text-text-muted">{re.category} · Day {re.day_of_month}</p>
-                </div>
-                <div className="flex items-center gap-2">
+              <Card key={re.id} className="group relative">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-text-primary">{re.description || re.category}</p>
+                    <p className="text-xs text-text-muted">{re.category} · Day {re.day_of_month}</p>
+                  </div>
                   <span className="text-sm font-bold text-danger">{formatCurrency(re.amount)}</span>
+                </div>
+                <div className="mt-3 flex gap-2 border-t border-border pt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <Button variant="ghost" size="sm" onClick={() => setRecurringTarget(re)}>
                     <Plus className="h-3.5 w-3.5" />
+                    Generate
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    setEditingRecurring(re)
+                    setRecurringForm({ category: re.category, description: re.description || '', amount: re.amount, day_of_month: re.day_of_month })
+                    setShowRecurringModal(true)
+                  }}>
+                    Edit
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => handleDeleteRecurring(re)}>
+                    <span className="text-danger">Delete</span>
                   </Button>
                 </div>
               </Card>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Occupancy by Floor */}
       <div>
@@ -464,7 +534,7 @@ export default function Dashboard() {
       <Card>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-semibold text-text-primary">
-            Recent Payments — {formatMonthYear(current.month, current.year)}
+            Recent Payments — {formatMonthYear(filterMonth, filterYear)}
           </h3>
           <Link to="/payments">
             <Button variant="ghost" size="sm">
@@ -542,6 +612,23 @@ export default function Dashboard() {
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="secondary" onClick={() => setShowExpenseModal(false)}>Cancel</Button>
             <Button type="submit">Add Expense</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Recurring Template Modal */}
+      <Modal isOpen={showRecurringModal} onClose={() => { setShowRecurringModal(false); setEditingRecurring(null) }} title={editingRecurring ? 'Edit Recurring Template' : 'Add Recurring Template'}>
+        <form onSubmit={handleRecurringSubmit} className="space-y-4">
+          <Select label="Category" value={recurringForm.category} onChange={(e) => setRecurringForm({ ...recurringForm, category: e.target.value })} required>
+            <option value="">Select category</option>
+            {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </Select>
+          <Input label="Description" placeholder="Optional description..." value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} />
+          <Input label="Amount (₱)" type="number" min="0" step="100" value={recurringForm.amount} onChange={(e) => setRecurringForm({ ...recurringForm, amount: e.target.value })} required />
+          <Input label="Day of Month" type="number" min="1" max="31" value={recurringForm.day_of_month} onChange={(e) => setRecurringForm({ ...recurringForm, day_of_month: e.target.value })} required />
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="secondary" onClick={() => { setShowRecurringModal(false); setEditingRecurring(null) }}>Cancel</Button>
+            <Button type="submit">{editingRecurring ? 'Save Changes' : 'Add Template'}</Button>
           </div>
         </form>
       </Modal>

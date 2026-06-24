@@ -14,10 +14,10 @@ import { useSupabaseQuery } from '../../hooks/useSupabase'
 import { useSidebar } from './Layout'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', badge: 'dashboard' },
   { to: '/units', icon: Building2, label: 'Units' },
   { to: '/tenants', icon: Users, label: 'Tenants' },
-  { to: '/payments', icon: CreditCard, label: 'Payments', badge: true },
+  { to: '/payments', icon: CreditCard, label: 'Payments', badge: 'payments' },
   { to: '/utilities', icon: Zap, label: 'Utilities' },
   { to: '/cashflow', icon: TrendingUp, label: 'Cashflow' },
   { to: '/reports', icon: BarChart3, label: 'Reports' },
@@ -27,12 +27,30 @@ export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useSidebar()
   const location = useLocation()
 
-  const { data: pendingPayments } = useSupabaseQuery('rent_payments', {
+  const { data: overduePayments } = useSupabaseQuery('rent_payments', {
     select: 'id',
-    filters: [{ column: 'status', value: 'pending' }],
+    filters: [{ column: 'status', value: 'overdue' }],
   })
 
-  const overdueCount = pendingPayments?.length || 0
+  const { data: recurringExpenses } = useSupabaseQuery('recurring_expenses', {
+    select: 'id, category, day_of_month',
+  })
+
+  const { data: allExpenses } = useSupabaseQuery('expenses', {
+    select: 'id, category, expense_date',
+  })
+
+  // Count recurring expenses not yet generated for current month
+  const current = new Date()
+  const currentMonth = current.getMonth() + 1
+  const currentYear = current.getFullYear()
+  const unmatchedRecurringCount = (recurringExpenses || []).filter((re) => {
+    const targetDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
+    return !(allExpenses || []).some((e) => e.category === re.category && e.expense_date === targetDate)
+  }).length
+
+  const overdueCount = overduePayments?.length || 0
+  const totalBadgeCount = overdueCount + unmatchedRecurringCount
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -72,9 +90,14 @@ export default function Sidebar() {
           >
             <item.icon className="h-5 w-5 transition-transform duration-200 group-hover:scale-110" />
             <span className="flex-1">{item.label}</span>
-            {item.badge && overdueCount > 0 && (
+            {item.badge === 'payments' && overdueCount > 0 && (
               <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5 text-[10px] font-bold text-white">
                 {overdueCount > 99 ? '99+' : overdueCount}
+              </span>
+            )}
+            {item.badge === 'dashboard' && totalBadgeCount > 0 && (
+              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-warning px-1.5 text-[10px] font-bold text-white">
+                {totalBadgeCount > 99 ? '99+' : totalBadgeCount}
               </span>
             )}
           </NavLink>
