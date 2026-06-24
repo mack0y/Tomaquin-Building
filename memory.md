@@ -268,11 +268,20 @@ export default defineConfig({
 | `EmptyState` | icon, title, description, action | Empty state placeholder |
 | `Input` | label, className, id, ...props | Form input with label (auto-generates id/name from label) |
 | `Select` | label, className, id, children, ...props | Form select with label (auto-generates id/name from label) |
+| `ConfirmDialog` | isOpen, onClose, onConfirm, title, message, confirmLabel, variant | Confirmation modal replacing browser confirm() |
+| `Skeleton` | className | Pulse-animated loading placeholder |
+| `SkeletonCard` | className | Card-shaped loading skeleton |
+| `SkeletonTable` | rows, cols | Table-shaped loading skeleton |
 
 **Toast component** (`src/components/ui/Toast.jsx`):
 - `ToastProvider` — wraps the app, provides toast context
 - `useToast()` — returns `{ success(msg), error(msg) }`
 - Toasts auto-dismiss after 3 seconds, slide-up animation
+
+**Layout components** (`src/components/layout/`):
+- `Layout.jsx` — Sidebar + Header + Outlet, provides SidebarContext
+- `Sidebar.jsx` — Mobile responsive drawer (md: breakpoint), notification badges, hover transitions
+- `Header.jsx` — Page title + hamburger menu (mobile) + date
 
 ---
 
@@ -391,7 +400,7 @@ await remove(id)
 4. **Client-side filtering for expenses** — Dashboard and Cashflow fetch all expenses then filter by month/year client-side. Could use Supabase date filters for better performance at scale.
 5. **No authentication** — RLS allows all operations. Ready for Supabase Auth to be added.
 6. **Chunk size warning** — production bundle is ~944KB (gzip ~266KB). Could use dynamic imports / code splitting.
-7. **No mobile responsive sidebar** — sidebar is fixed width, no hamburger menu for mobile.
+7. ~~No mobile responsive sidebar~~ — ✅ FIXED: Mobile responsive sidebar with hamburger menu (md: breakpoint at 768px)
 
 ---
 
@@ -432,7 +441,11 @@ npm run lint       # Run oxlint
 
 ## 16. Future Enhancements (Not Yet Implemented)
 
-- [ ] Mobile responsive sidebar with hamburger menu
+- [x] Mobile responsive sidebar with hamburger menu — ✅ DONE
+- [x] Replace browser confirm() with ConfirmDialog — ✅ DONE
+- [x] Loading skeleton components — ✅ DONE
+- [x] Card hover effects and transitions — ✅ DONE
+- [x] Sidebar notification badges — ✅ DONE
 - [ ] Authentication (Supabase Auth)
 - [ ] Deploy to GitHub Pages
 - [ ] Lease renewal alerts (60-day advance notice)
@@ -442,6 +455,8 @@ npm run lint       # Run oxlint
 - [ ] Code splitting for smaller bundle
 - [ ] PDF export for reports
 - [ ] Tenant payment history view
+- [ ] Loading skeletons for Cashflow, Payments, Utilities, Reports pages
+- [ ] Table row hover effects on Payments, Cashflow, Reports tables
 
 ---
 
