@@ -12,6 +12,7 @@
 **Stack:** React + Vite + Tailwind CSS v4 + Supabase (PostgreSQL) + GitHub Pages
 **Currency:** PHP (₱)
 **UI Style:** Modern dashboard — dark sidebar, light content area, card-based layout
+**Deployed:** GitHub Pages at `https://mack0y.github.io/Tomaquin-Building/`
 
 ---
 
@@ -50,11 +51,17 @@ Tomaquin-Building/
 ├── .env.example                  # Template for .env
 ├── index.html                    # Entry HTML
 ├── package.json
-├── vite.config.js                # Vite + React + Tailwind + path alias
+├── vite.config.js                # Vite + React + Tailwind + path alias + GitHub Pages base
+├── .github/
+│   └── workflows/
+│       └── deploy.yml            # GitHub Actions: build + deploy to Pages
 ├── supabase/
 │   ├── schema.sql                # Full database schema + seed data
+│   ├── seed_data.sql             # SQL seed script (Jan-Jun 2026)
 │   └── migrations/
 │       └── 002_recurring_expenses.sql  # Recurring expenses table
+├── scripts/
+│   └── seed.mjs                  # Node.js seed script (Supabase client)
 ├── src/
 │   ├── main.jsx                  # Entry point (BrowserRouter + ToastProvider)
 │   ├── App.jsx                   # Route definitions
@@ -63,23 +70,48 @@ Tomaquin-Building/
 │   │   ├── supabase.js           # Supabase client initialization
 │   │   └── utils.js              # cn(), formatCurrency(), formatDate(), formatMonthYear(), getCurrentMonth()
 │   ├── hooks/
-│   │   └── useSupabase.js        # useSupabaseQuery(), useSupabaseMutation()
+│   │   ├── useSupabase.js        # useSupabaseQuery(), useSupabaseMutation()
+│   │   └── useNotifications.js   # Shared notifications hook (overdue, pending, lease expirations, etc.)
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Layout.jsx        # Sidebar + Header + <Outlet />
-│   │   │   ├── Sidebar.jsx       # Navigation with Lucide icons
+│   │   │   ├── Sidebar.jsx       # Navigation with Lucide icons + notification badges
 │   │   │   └── Header.jsx        # Page title + current date
-│   │   └── ui/
-│   │       ├── index.jsx         # Card, Button, StatusBadge, Modal, EmptyState, Input, Select
-│   │       └── Toast.jsx         # ToastProvider, useToast() for success/error notifications
+│   │   ├── ui/
+│   │   │   ├── index.jsx         # Card, Button, StatusBadge, Modal, EmptyState, Input, Select
+│   │   │   ├── Toast.jsx         # ToastProvider, useToast() for success/error notifications
+│   │   │   ├── ConfirmDialog.jsx  # Confirmation modal replacing browser confirm()
+│   │   │   └── Skeleton.jsx      # Loading skeleton components
+│   │   ├── dashboard/            # Dashboard sub-components
+│   │   │   ├── NotificationsPanel.jsx
+│   │   │   ├── SummaryCards.jsx
+│   │   │   ├── UnitProfitability.jsx
+│   │   │   ├── RecurringExpensesSection.jsx
+│   │   │   ├── OccupancyByFloor.jsx
+│   │   │   ├── RecentPaymentsTable.jsx
+│   │   │   └── DashboardModals.jsx
+│   │   ├── payments/             # Payments sub-components
+│   │   │   ├── PaymentStats.jsx
+│   │   │   ├── PaymentTable.jsx
+│   │   │   └── PaymentModal.jsx
+│   │   ├── utilities/            # Utilities sub-components
+│   │   │   ├── UtilityTabs.jsx
+│   │   │   ├── UtilityStats.jsx
+│   │   │   ├── UtilityTable.jsx
+│   │   │   └── UtilityModal.jsx
+│   │   └── cashflow/             # Cashflow sub-components
+│   │       ├── CashflowSummary.jsx
+│   │       ├── CashflowCharts.jsx
+│   │       ├── ExpenseTable.jsx
+│   │       └── ExpenseModal.jsx
 │   └── pages/
-│       ├── Dashboard.jsx         # Main dashboard with quick actions, stats, unit profit, recurring expenses, occupancy, recent payments
+│       ├── Dashboard.jsx         # Main dashboard (orchestrator, ~200 lines)
 │       ├── Units.jsx             # Units CRUD grouped by floor
 │       ├── Tenants.jsx           # Tenants CRUD with search, auto unit status update
-│       ├── Payments.jsx          # Rent payments with status tracking, filters
-│       ├── Utilities.jsx         # Electric + water meter readings, tabs
-│       ├── Cashflow.jsx          # Income vs expenses, charts, expense CRUD
-│       └── Reports.jsx           # Monthly/yearly reports, charts, CSV export
+│       ├── Payments.jsx          # Rent payments (orchestrator, ~100 lines)
+│       ├── Utilities.jsx         # Electric + water meter readings (orchestrator, ~100 lines)
+│       ├── Cashflow.jsx          # Income vs expenses with custom date range (orchestrator, ~120 lines)
+│       └── Reports.jsx           # Monthly/yearly/custom range reports, charts, CSV export
 └── dist/                         # Production build output
 ```
 
@@ -172,17 +204,13 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 | is_active | BOOLEAN | Default true |
 | created_at, updated_at | TIMESTAMPTZ | |
 
-**Seed data for recurring expenses:**
-- Security Guard: ₱8,000/month
-- Cleaning Staff: ₱5,000/month
-- Building Insurance: ₱2,500/month
-
-### Seed Data (Units)
-| Unit | Floor | Rent | Status |
-|------|-------|------|--------|
-| 101-104 | 1 | ₱5,000 | 3 occupied, 1 vacant |
-| 201-204 | 2 | ₱5,500 | 3 occupied, 1 vacant |
-| 301-304 | 3 | ₱6,000 | 3 occupied, 1 vacant |
+### Seed Data (Jan–Jun 2026)
+Run `node scripts/seed.mjs` to populate the database with test data:
+- **9 tenants** across all occupied units
+- **54 rent payments** (Jan–Jun, mix of paid/pending/overdue/partial)
+- **108 utility readings** (9 units × 6 months × electric + water)
+- **39 expenses** across 7 categories
+- **3 recurring expense templates** (Security Guard, Cleaning Staff, Insurance)
 
 ### RLS Policies
 All tables have RLS enabled with "Allow all" policies (no auth yet). Ready for auth to be added later.
@@ -205,6 +233,7 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: '/Tomaquin-Building/',  // GitHub Pages subpath
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -214,6 +243,7 @@ export default defineConfig({
 ```
 
 **Path alias:** `@` maps to `./src`
+**Base:** `/Tomaquin-Building/` for GitHub Pages deployment
 
 ---
 
@@ -285,7 +315,7 @@ export default defineConfig({
 
 ---
 
-## 8. Custom Hooks (`src/hooks/useSupabase.js`)
+## 8. Custom Hooks (`src/hooks/`)
 
 ### `useSupabaseQuery(table, options)`
 Fetches data from Supabase with select, order, and filter support.
@@ -308,6 +338,15 @@ await update(id, { rent_amount: 7500 })
 await remove(id)
 ```
 
+### `useNotifications(data, filterMonth, filterYear)`
+Shared hook for computing notification items. Accepts data as parameters (no duplicate queries when used from Dashboard).
+- **Overdue payments** (critical) — payments with status 'overdue'
+- **Pending rent due** (warning) — payments with status 'pending'
+- **Missing utility readings** (warning) — occupied units without readings for the month
+- **Expired leases** (critical) — tenants with lease_end before today
+- **Lease expiring soon** (info) — leases expiring within 30 days
+- **Unmatched recurring expenses** (info) — recurring templates not yet generated for the month
+
 ---
 
 ## 9. Utility Functions (`src/lib/utils.js`)
@@ -324,15 +363,16 @@ await remove(id)
 
 ## 10. Page Summaries
 
-### Dashboard (`src/pages/Dashboard.jsx`)
+### Dashboard (`src/pages/Dashboard.jsx`) — ~200 lines
+- **Date range filter:** Month/Year selects at top
 - **Quick Actions bar:** Record Payment, Add Expense, Record Reading buttons
 - **Summary cards:** Total Units, Total Tenants, Collected (with % change vs last month), Net Cashflow (with expense % change)
-- **Overdue alert banner** — shows count and total overdue
+- **Notifications Panel:** Categorized alerts (overdue, pending, missing readings, lease expirations, unmatched recurring)
 - **Unit Profitability** — per-unit card showing rent, utilities, profit (rent - utilities)
-- **Recurring Expenses** — list with one-click generate button
+- **Recurring Expenses** — list with Generate/Edit/Delete, duplicate check with warning
 - **Occupancy by Floor** — 3-column grid with colored unit boxes (green/red/yellow)
 - **Recent Payments table** — last 8 payments with status badges
-- **Modals:** Quick Payment (tenant, amount, date, period), Quick Expense (category, description, amount, date)
+- **Modals:** Quick Payment, Quick Expense, Recurring Template (add/edit), Delete Confirm, Generate Confirm
 
 ### Units (`src/pages/Units.jsx`)
 - Stats cards (Total, Occupied, Vacant, Maintenance)
@@ -346,13 +386,13 @@ await remove(id)
 - Auto-updates unit status: assigning tenant → occupied, removing → vacant (checks for other tenants first)
 - Add/Edit modal with full name, phone, email, unit assignment, lease dates
 
-### Payments (`src/pages/Payments.jsx`)
+### Payments (`src/pages/Payments.jsx`) — ~100 lines
 - Summary cards: Total Revenue, Paid, Pending, Overdue
 - Filters: Month, Year, Status
 - Table: Tenant, Unit, Amount, Date, Status, Notes, Edit action
 - Modal: Tenant selector (auto-fills unit), amount, date, period, year, status, notes
 
-### Utilities (`src/pages/Utilities.jsx`)
+### Utilities (`src/pages/Utilities.jsx`) — ~100 lines
 - Electric / Water tab switcher
 - Stats: Total Cost, Units Billed, Total Usage (kWh or m³), Readings count
 - Filters: Month, Year
@@ -360,17 +400,19 @@ await remove(id)
 - Modal: Unit selector, readings, rate, date, billing period
 - Live estimated cost preview in modal
 
-### Cashflow (`src/pages/Cashflow.jsx`)
+### Cashflow (`src/pages/Cashflow.jsx`) — ~120 lines
+- **Filter toggle:** Monthly / Custom Range with date pickers
 - Summary cards: Income, Expenses, Net Cashflow, Pending Collections
-- Filters: Month, Year
 - Charts: Monthly Trend (bar), Expense Breakdown (pie)
 - Expenses table with Add/Edit/Delete
 - Expense modal: category, description, amount, date
+- Custom range summary banner showing totals
 
 ### Reports (`src/pages/Reports.jsx`)
-- Toggle: Monthly / Yearly view
+- Toggle: Monthly / Yearly / Custom Range
 - Summary cards: Total Revenue, Total Expenses, Net Profit, Avg Collection Rate + Occupancy
 - Monthly detail (when monthly view selected)
+- Custom range summary (when custom range selected)
 - 4 charts: Revenue vs Expenses (bar), Net Cashflow Trend (line), Expense Breakdown (pie), Collection Rate (bar)
 - Monthly Summary Table with totals
 - Export: CSV download, Print button
@@ -394,13 +436,9 @@ await remove(id)
 
 ## 12. Known Issues & Technical Debt
 
-1. **Dashboard.jsx is large** (~400 lines) — contains quick actions, modals, unit profit, recurring expenses, occupancy, and payments table. Should be split into smaller components if adding more features.
-2. **Expense categories duplicated** — `EXPENSE_CATEGORIES` is defined in both Dashboard.jsx and Cashflow.jsx. Should be extracted to a shared constant.
-3. **No duplicate check for recurring expense generation** — clicking generate twice creates duplicate entries for the same month.
-4. **Client-side filtering for expenses** — Dashboard and Cashflow fetch all expenses then filter by month/year client-side. Could use Supabase date filters for better performance at scale.
-5. **No authentication** — RLS allows all operations. Ready for Supabase Auth to be added.
-6. **Chunk size warning** — production bundle is ~944KB (gzip ~266KB). Could use dynamic imports / code splitting.
-7. ~~No mobile responsive sidebar~~ — ✅ FIXED: Mobile responsive sidebar with hamburger menu (md: breakpoint at 768px)
+1. **Chunk size warning** — production bundle is ~944KB (gzip ~266KB). Could use dynamic imports / code splitting.
+2. **No authentication** — RLS allows all operations. Ready for Supabase Auth to be added.
+3. **Client-side filtering for expenses** — Dashboard and Cashflow fetch all expenses then filter by month/year client-side. Could use Supabase date filters for better performance at scale.
 
 ---
 
@@ -411,16 +449,19 @@ npm run dev        # Start development server (localhost:5173)
 npm run build      # Production build to dist/
 npm run preview    # Preview production build
 npm run lint       # Run oxlint
+node scripts/seed.mjs  # Seed database with test data (Jan-Jun 2026)
 ```
 
 ---
 
-## 14. Deployment (Planned: GitHub Pages)
+## 14. Deployment (GitHub Pages)
 
-- Static site — just deploy the `dist/` folder
-- Need to set `base` in vite.config.js for GitHub Pages subpath
-- Environment variables must be set at build time (Vite inlines them)
+- **URL:** `https://mack0y.github.io/Tomaquin-Building/`
+- **Base path:** `/Tomaquin-Building/` set in vite.config.js
+- **CI/CD:** GitHub Actions workflow (`.github/workflows/deploy.yml`) — builds and deploys on push to main
+- Environment variables are inlined at build time by Vite
 - Supabase anon key is safe to expose in client-side code (RLS protects data)
+- To deploy manually: `npm run build` then push to main
 
 ---
 
@@ -431,7 +472,12 @@ npm run lint       # Run oxlint
 | Supabase + GitHub Pages | Zero server cost, managed database, easy static hosting |
 | No auth (MVP) | Personal use — owner is the only user. Can add auth later. |
 | Manual recurring expense generation | Owner controls when to generate, avoids surprises |
+| Duplicate check for recurring generation | Prevents accidental double entries with warning dialog |
 | Unit status auto-update on tenant assign/delete | Reduces manual bookkeeping |
+| Notifications panel (top of Dashboard) | Actionable alerts for overdue payments, missing readings, lease expirations |
+| Custom date range filters | Flexible period analysis for Cashflow and Reports |
+| Component extraction pattern | Each page split into sub-components (stats, table, modal) for maintainability |
+| Shared useNotifications hook | Single source of truth for notification logic (Dashboard + Sidebar) |
 | PHP currency throughout | Building is in the Philippines |
 | Dark sidebar + light content | Modern dashboard aesthetic |
 | Cards with shadows | Visual hierarchy, easy to scan |
@@ -439,24 +485,31 @@ npm run lint       # Run oxlint
 
 ---
 
-## 16. Future Enhancements (Not Yet Implemented)
+## 16. Future Enhancements
 
 - [x] Mobile responsive sidebar with hamburger menu — ✅ DONE
 - [x] Replace browser confirm() with ConfirmDialog — ✅ DONE
 - [x] Loading skeleton components — ✅ DONE
 - [x] Card hover effects and transitions — ✅ DONE
 - [x] Sidebar notification badges — ✅ DONE
+- [x] Notifications panel (overdue, pending, missing readings, lease expirations) — ✅ DONE
+- [x] Dashboard date range picker — ✅ DONE
+- [x] Recurring template management (add/edit/delete from Dashboard) — ✅ DONE
+- [x] Duplicate check for recurring expense generation — ✅ DONE
+- [x] Component extraction (Dashboard, Payments, Utilities, Cashflow) — ✅ DONE
+- [x] Custom date range filter for Cashflow — ✅ DONE
+- [x] Seed data (Jan–Jun 2026) — ✅ DONE
+- [x] GitHub Pages deployment — ✅ DONE
 - [ ] Authentication (Supabase Auth)
-- [ ] Deploy to GitHub Pages
 - [ ] Lease renewal alerts (60-day advance notice)
-- [ ] Expense category shared constant
-- [ ] Duplicate check for recurring expense generation
-- [ ] Supabase date filters for expense queries (performance)
-- [ ] Code splitting for smaller bundle
+- [ ] Expense category shared constant (extract to src/constants.js)
+- [ ] Code splitting / lazy loading for smaller bundle
 - [ ] PDF export for reports
 - [ ] Tenant payment history view
-- [ ] Loading skeletons for Cashflow, Payments, Utilities, Reports pages
-- [ ] Table row hover effects on Payments, Cashflow, Reports tables
+- [ ] Budget vs Actual comparison
+- [ ] Cashflow forecast (3-month projection)
+- [ ] Export CSV from Cashflow page
+- [ ] Add barrel exports for component directories
 
 ---
 
