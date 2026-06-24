@@ -1,30 +1,31 @@
 import { useState, useMemo } from 'react'
-import { TrendingUp, TrendingDown, DollarSign, Plus, Edit2, Trash2 } from 'lucide-react'
-import ConfirmDialog from '../components/ui/ConfirmDialog'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
+import { Plus } from 'lucide-react'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
-import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
-import { Card, Button, Modal, Input, Select, EmptyState } from '../components/ui'
+import { getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { useToast } from '../components/ui/Toast'
+import { Button, Select } from '../components/ui'
 import { Skeleton, SkeletonCard, SkeletonTable } from '../components/ui/Skeleton'
+import CashflowSummary from '../components/cashflow/CashflowSummary'
+import CashflowCharts from '../components/cashflow/CashflowCharts'
+import ExpenseTable from '../components/cashflow/ExpenseTable'
+import ExpenseModal, { ExpenseDeleteDialog } from '../components/cashflow/ExpenseModal'
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
 const YEARS = [2025, 2026, 2027, 2028]
-const EXPENSE_CATEGORIES = [
-  'Maintenance', 'Repair', 'Salary', 'Supplies', 'Insurance', 'Tax', 'Utilities (Building)', 'Other',
-]
+
+const INITIAL_FORM = { category: '', description: '', amount: '', expense_date: '' }
 
 export default function Cashflow() {
   const current = getCurrentMonth()
+  const toast = useToast()
   const [filterMonth, setFilterMonth] = useState(current.month)
   const [filterYear, setFilterYear] = useState(current.year)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [editingExpense, setEditingExpense] = useState(null)
-  const [expenseForm, setExpenseForm] = useState({
-    category: '', description: '', amount: '', expense_date: '',
-  })
+  const [expenseForm, setExpenseForm] = useState(INITIAL_FORM)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
-  // Income: rent payments for the period
+  // Data queries
   const { data: payments, loading: loadingPayments, error: paymentsError } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
@@ -32,29 +33,18 @@ export default function Cashflow() {
       { column: 'period_year', value: filterYear },
     ],
   })
-
-  // All payments for the year (for trend chart)
   const { data: yearlyPayments } = useSupabaseQuery('rent_payments', {
     select: 'amount, period_month, period_year, status',
-    filters: [
-      { column: 'period_year', value: filterYear },
-    ],
+    filters: [{ column: 'period_year', value: filterYear }],
   })
-
-  // Expenses for the period (all expenses, filtered client-side by month/year)
   const { data: expenses, loading: loadingExpenses, refetch: refetchExpenses, error: expensesError } = useSupabaseQuery('expenses', {
     order: { column: 'expense_date', ascending: false },
   })
-
-  // All expenses for the year
   const { data: yearlyExpenses } = useSupabaseQuery('expenses', {
     select: 'amount, category, expense_date',
-    filters: [],
   })
 
   const { insert: insertExpense, update: updateExpense, remove: removeExpense, loading: mutating } = useSupabaseMutation('expenses')
-
-  const toast = useToast()
 
   // Filtered expenses by month
   const filteredExpenses = useMemo(() => {
@@ -66,12 +56,8 @@ export default function Cashflow() {
 
   // Summary stats
   const stats = useMemo(() => {
-    const totalIncome = payments
-      .filter((p) => p.status === 'paid')
-      .reduce((sum, p) => sum + Number(p.amount), 0)
-    const totalPending = payments
-      .filter((p) => p.status === 'pending' || p.status === 'overdue')
-      .reduce((sum, p) => sum + Number(p.amount), 0)
+    const totalIncome = payments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0)
+    const totalPending = payments.filter((p) => p.status === 'pending' || p.status === 'overdue').reduce((sum, p) => sum + Number(p.amount), 0)
     const totalExpenses = filteredExpenses.reduce((sum, e) => sum + Number(e.amount), 0)
     return { totalIncome, totalPending, totalExpenses, netCashflow: totalIncome - totalExpenses }
   }, [payments, filteredExpenses])
@@ -105,15 +91,12 @@ export default function Cashflow() {
 
   const loading = loadingPayments || loadingExpenses
 
-  const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6']
-
+  // Handlers
   const handleExpenseSubmit = async (e) => {
     e.preventDefault()
     const payload = {
-      category: expenseForm.category,
-      description: expenseForm.description,
-      amount: parseFloat(expenseForm.amount),
-      expense_date: expenseForm.expense_date,
+      category: expenseForm.category, description: expenseForm.description,
+      amount: parseFloat(expenseForm.amount), expense_date: expenseForm.expense_date,
     }
     if (editingExpense) {
       const { error } = await updateExpense(editingExpense.id, payload)
@@ -126,22 +109,15 @@ export default function Cashflow() {
     }
     setShowExpenseModal(false)
     setEditingExpense(null)
-    setExpenseForm({ category: '', description: '', amount: '', expense_date: '' })
+    setExpenseForm(INITIAL_FORM)
     refetchExpenses()
   }
 
   const handleEditExpense = (expense) => {
-    setExpenseForm({
-      category: expense.category,
-      description: expense.description || '',
-      amount: expense.amount,
-      expense_date: expense.expense_date,
-    })
+    setExpenseForm({ category: expense.category, description: expense.description || '', amount: expense.amount, expense_date: expense.expense_date })
     setEditingExpense(expense)
     setShowExpenseModal(true)
   }
-
-  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const handleDeleteExpense = async () => {
     if (!deleteTarget) return
@@ -154,241 +130,62 @@ export default function Cashflow() {
 
   return (
     <div className="space-y-6">
-      {/* Error Banner */}
       {(paymentsError || expensesError) && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-danger">
-            Failed to load data: {paymentsError || expensesError}
-          </p>
+          <p className="text-sm font-medium text-danger">Failed to load data: {paymentsError || expensesError}</p>
         </div>
       )}
 
       {loading ? (
         <>
-          {/* Summary Cards Skeleton */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
-          {/* Charts Skeleton */}
           <div className="grid gap-6 lg:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
-              <Card key={i}>
+              <div key={i} className="rounded-xl border border-border bg-surface-card p-6">
                 <Skeleton className="mb-4 h-5 w-40" />
                 <Skeleton className="h-[300px] w-full" />
-              </Card>
+              </div>
             ))}
           </div>
-          {/* Table Skeleton */}
           <SkeletonTable rows={5} cols={5} />
         </>
       ) : (
-      <>
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card>
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-success" />
-            <p className="text-sm text-text-secondary">Income</p>
+        <>
+          <CashflowSummary stats={stats} />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Select id="cashflow-month" name="cashflow-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+              {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </Select>
+            <Select id="cashflow-year" name="cashflow-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+              {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+            </Select>
           </div>
-          <p className="mt-1 text-2xl font-bold text-success">{formatCurrency(stats.totalIncome)}</p>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-danger" />
-            <p className="text-sm text-text-secondary">Expenses</p>
-          </div>
-          <p className="mt-1 text-2xl font-bold text-danger">{formatCurrency(stats.totalExpenses)}</p>
-        </Card>
-        <Card>
-          <div className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-primary" />
-            <p className="text-sm text-text-secondary">Net Cashflow</p>
-          </div>
-          <p className={`mt-1 text-2xl font-bold ${stats.netCashflow >= 0 ? 'text-success' : 'text-danger'}`}>
-            {formatCurrency(stats.netCashflow)}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-secondary">Pending Collections</p>
-          <p className="mt-1 text-2xl font-bold text-warning">{formatCurrency(stats.totalPending)}</p>
-        </Card>
-      </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Select id="cashflow-month" name="cashflow-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
-          {MONTHS.map((m) => (
-            <option key={m.value} value={m.value}>{m.label}</option>
-          ))}
-        </Select>
-        <Select id="cashflow-year" name="cashflow-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
-          {YEARS.map((y) => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </Select>
-      </div>
+          <CashflowCharts monthlyTrend={monthlyTrend} expenseBreakdown={expenseBreakdown} filterYear={filterYear} />
 
-      {/* Charts */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Monthly Trend */}
-        <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Monthly Trend ({filterYear})</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={monthlyTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value) => formatCurrency(value)} />
-              <Legend />
-              <Bar dataKey="income" name="Income" fill="#22c55e" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="expenses" name="Expenses" fill="#ef4444" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* Expense Breakdown */}
-        <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Expense Breakdown</h3>
-          {expenseBreakdown.length === 0 ? (
-            <div className="flex h-[300px] items-center justify-center text-text-muted">No expenses recorded</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={expenseBreakdown}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={4}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {expenseBreakdown.map((_, index) => (
-                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-      </div>
-
-      {/* Expenses List */}
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-text-primary">
-          Expenses — {formatMonthYear(filterMonth, filterYear)}
-        </h3>
-        <Button onClick={() => {
-          setExpenseForm({ category: '', description: '', amount: '', expense_date: `${filterYear}-${String(filterMonth).padStart(2, '0')}-01` })
-          setEditingExpense(null)
-          setShowExpenseModal(true)
-        }}>
-          <Plus className="h-4 w-4" />
-          Add Expense
-        </Button>
-      </div>
-
-      {filteredExpenses.length === 0 ? (
-        <Card>
-          <p className="py-6 text-center text-text-muted">No expenses for this period</p>
-        </Card>
-      ) : (
-        <Card className="overflow-hidden p-0">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-surface">
-                <th className="px-4 py-3 text-left text-sm font-medium text-text-secondary">Category</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-text-secondary">Description</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-text-secondary">Amount</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-text-secondary">Date</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-text-secondary">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredExpenses.map((expense) => (
-                <tr key={expense.id} className="border-b border-border last:border-b-0 hover:bg-surface">
-                  <td className="px-4 py-3 text-sm font-medium text-text-primary">{expense.category}</td>
-                  <td className="px-4 py-3 text-sm text-text-secondary">{expense.description || '—'}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-danger">{formatCurrency(expense.amount)}</td>
-                  <td className="px-4 py-3 text-sm text-text-secondary">{expense.expense_date}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleEditExpense(expense)}>
-                      <Edit2 className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(expense)}>
-                      <Trash2 className="h-3.5 w-3.5 text-danger" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      )}
-
-      {/* Expense Modal */}
-      <Modal
-        isOpen={showExpenseModal}
-        onClose={() => { setShowExpenseModal(false); setEditingExpense(null) }}
-        title={editingExpense ? 'Edit Expense' : 'Add Expense'}
-      >
-        <form onSubmit={handleExpenseSubmit} className="space-y-4">
-          <Select
-            label="Category"
-            value={expenseForm.category}
-            onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-            required
-          >
-            <option value="">Select category</option>
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </Select>
-          <Input
-            label="Description"
-            placeholder="Optional description..."
-            value={expenseForm.description}
-            onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
-          />
-          <Input
-            label="Amount (₱)"
-            type="number"
-            min="0"
-            step="100"
-            value={expenseForm.amount}
-            onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-            required
-          />
-          <Input
-            label="Date"
-            type="date"
-            value={expenseForm.expense_date}
-            onChange={(e) => setExpenseForm({ ...expenseForm, expense_date: e.target.value })}
-            required
-          />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => { setShowExpenseModal(false); setEditingExpense(null) }}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={mutating}>
-              {editingExpense ? 'Save Changes' : 'Add Expense'}
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-text-primary">
+              Expenses — {formatMonthYear(filterMonth, filterYear)}
+            </h3>
+            <Button onClick={() => {
+              setExpenseForm({ ...INITIAL_FORM, expense_date: `${filterYear}-${String(filterMonth).padStart(2, '0')}-01` })
+              setEditingExpense(null)
+              setShowExpenseModal(true)
+            }}>
+              <Plus className="h-4 w-4" /> Add Expense
             </Button>
           </div>
-        </form>
-      </Modal>
 
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDeleteExpense}
-        title="Delete Expense"
-        message={`Are you sure you want to delete ${deleteTarget?.category} — ${formatCurrency(deleteTarget?.amount || 0)}? This cannot be undone.`}
-        confirmLabel="Delete Expense"
-      />
-      </>
+          <ExpenseTable expenses={filteredExpenses} onEdit={handleEditExpense} onDelete={setDeleteTarget} />
+
+          <ExpenseModal isOpen={showExpenseModal} onClose={() => { setShowExpenseModal(false); setEditingExpense(null) }}
+            onSubmit={handleExpenseSubmit} form={expenseForm} setForm={setExpenseForm} editing={editingExpense} mutating={mutating} />
+
+          <ExpenseDeleteDialog isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDeleteExpense} target={deleteTarget} />
+        </>
       )}
     </div>
   )
