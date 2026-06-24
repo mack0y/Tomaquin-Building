@@ -12,6 +12,10 @@ import {
   ArrowRight,
   ArrowUpRight,
   ArrowDownRight,
+  Clock,
+  CalendarDays,
+  FileText,
+  Bell,
 } from 'lucide-react'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
@@ -178,6 +182,117 @@ export default function Dashboard() {
 
   const recentPayments = payments.slice(0, 8)
   const overduePayments = allPayments.filter((p) => p.status === 'overdue')
+
+  // Build notification items for the top panel
+  const notifications = useMemo(() => {
+    const items = []
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
+
+    // 1. Overdue payments (critical)
+    const allOverduePayments = allPayments.filter((p) => p.status === 'overdue')
+    if (allOverduePayments.length > 0) {
+      items.push({
+        id: 'overdue-payments',
+        severity: 'critical',
+        icon: AlertCircle,
+        title: `${allOverduePayments.length} Overdue Payment${allOverduePayments.length > 1 ? 's' : ''}`,
+        description: `Total overdue: ${formatCurrency(allOverduePayments.reduce((s, p) => s + Number(p.amount), 0))}`,
+        action: '/payments',
+        actionLabel: 'View Payments',
+      })
+    }
+
+    // 2. Pending rent due this month (warning)
+    const pendingPayments = allPayments.filter((p) => p.status === 'pending')
+    if (pendingPayments.length > 0) {
+      items.push({
+        id: 'pending-rent',
+        severity: 'warning',
+        icon: Clock,
+        title: `${pendingPayments.length} Pending Payment${pendingPayments.length > 1 ? 's' : ''} Due`,
+        description: `${formatCurrency(pendingPayments.reduce((s, p) => s + Number(p.amount), 0))} awaiting collection for ${formatMonthYear(filterMonth, filterYear)}`,
+        action: '/payments',
+        actionLabel: 'Record Payments',
+      })
+    }
+
+    // 3. Units without utility readings this month (warning)
+    const occupiedUnits = units.filter((u) => u.status === 'occupied')
+    const unitsWithReadings = new Set(
+      utilityReadings
+        .filter((r) => r.billing_period_month === filterMonth && r.billing_period_year === filterYear)
+        .map((r) => r.unit_id)
+    )
+    const unitsWithoutReadings = occupiedUnits.filter((u) => !unitsWithReadings.has(u.id))
+    if (unitsWithoutReadings.length > 0) {
+      items.push({
+        id: 'missing-readings',
+        severity: 'warning',
+        icon: Zap,
+        title: `${unitsWithoutReadings.length} Unit${unitsWithoutReadings.length > 1 ? 's' : ''} Missing Utility Readings`,
+        description: unitsWithoutReadings.map((u) => `Unit ${u.unit_number}`).join(', ')
+        + ` — no readings recorded for ${formatMonthYear(filterMonth, filterYear)}`,
+        action: '/utilities',
+        actionLabel: 'Record Readings',
+      })
+    }
+
+    // 4. Lease expirations within 30 days (info)
+    const activeTenants = tenants.filter((t) => t.lease_end)
+    const expiringSoon = activeTenants.filter((t) => {
+      const endDate = new Date(t.lease_end)
+      const diffDays = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24))
+      return diffDays >= 0 && diffDays <= 30
+    })
+    const expiredLeases = activeTenants.filter((t) => {
+      const endDate = new Date(t.lease_end)
+      return endDate < today
+    })
+
+    if (expiredLeases.length > 0) {
+      items.push({
+        id: 'expired-leases',
+        severity: 'critical',
+        icon: FileText,
+        title: `${expiredLeases.length} Expired Lease${expiredLeases.length > 1 ? 's' : ''}`,
+        description: expiredLeases.map((t) => `${t.full_name} (Unit ${t.units?.unit_number || 'N/A'}) — expired ${t.lease_end}`).join('; '),
+        action: '/tenants',
+        actionLabel: 'Review Tenants',
+      })
+    }
+
+    if (expiringSoon.length > 0) {
+      items.push({
+        id: 'expiring-leases',
+        severity: 'info',
+        icon: CalendarDays,
+        title: `${expiringSoon.length} Lease Expiring Soon`,
+        description: expiringSoon.map((t) => `${t.full_name} — ${t.lease_end}`).join('; '),
+        action: '/tenants',
+        actionLabel: 'Review Tenants',
+      })
+    }
+
+    // 5. Recurring expenses not yet generated (info)
+    const unmatchedRecurring = recurringExpenses.filter((re) => {
+      const targetDate = `${filterYear}-${String(filterMonth).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
+      return !expenses.some((e) => e.category === re.category && e.expense_date === targetDate)
+    })
+    if (unmatchedRecurring.length > 0) {
+      items.push({
+        id: 'unmatched-recurring',
+        severity: 'info',
+        icon: FileText,
+        title: `${unmatchedRecurring.length} Recurring Expense${unmatchedRecurring.length > 1 ? 's' : ''} Not Generated`,
+        description: unmatchedRecurring.map((r) => `${r.description || r.category} (${formatCurrency(r.amount)})`).join(', '),
+        action: '/cashflow',
+        actionLabel: 'Generate Now',
+      })
+    }
+
+    return items
+  }, [allPayments, units, utilityReadings, tenants, recurringExpenses, expenses, filterMonth, filterYear])
 
   // Quick action handlers
   const handlePaymentSubmit = async (e) => {
@@ -380,23 +495,49 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Overdue Alert */}
-      {overduePayments.length > 0 && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+      {/* Notifications Panel */}
+      {notifications.length > 0 && (
+        <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-danger" />
-            <p className="font-semibold text-danger">
-              {overduePayments.length} overdue payment{overduePayments.length > 1 ? 's' : ''}
-            </p>
+            <Bell className="h-4 w-4 text-text-secondary" />
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
+              Action Required ({notifications.length})
+            </h3>
           </div>
-          <p className="mt-1 text-sm text-red-700">
-            Total overdue: {formatCurrency(overduePayments.reduce((s, p) => s + Number(p.amount), 0))}
-          </p>
-          <Link to="/payments">
-            <Button variant="ghost" size="sm" className="mt-2 text-danger hover:bg-red-100">
-              View overdue payments <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          </Link>
+          <div className="space-y-2">
+            {notifications.map((n) => {
+              const severityStyles = {
+                critical: 'border-red-200 bg-red-50 text-red-800',
+                warning: 'border-amber-200 bg-amber-50 text-amber-800',
+                info: 'border-blue-200 bg-blue-50 text-blue-800',
+              }
+              const iconStyles = {
+                critical: 'text-red-500',
+                warning: 'text-amber-500',
+                info: 'text-blue-500',
+              }
+              const buttonStyles = {
+                critical: 'text-red-700 hover:bg-red-100',
+                warning: 'text-amber-700 hover:bg-amber-100',
+                info: 'text-blue-700 hover:bg-blue-100',
+              }
+              const Icon = n.icon
+              return (
+                <div key={n.id} className={`flex items-start gap-3 rounded-lg border p-3 ${severityStyles[n.severity]}`}>
+                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconStyles[n.severity]}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">{n.title}</p>
+                    <p className="text-xs opacity-80 truncate">{n.description}</p>
+                  </div>
+                  <Link to={n.action} className="shrink-0">
+                    <Button variant="ghost" size="sm" className={`text-xs ${buttonStyles[n.severity]}`}>
+                      {n.actionLabel} <ArrowRight className="ml-1 h-3 w-3" />
+                    </Button>
+                  </Link>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
