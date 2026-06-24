@@ -63,7 +63,7 @@ export default function Sidebar() {
         <div className="flex items-center gap-3">
           <Building2 className="h-7 w-7 text-primary-light" />
           <div>
-            <h1 className="text-lg font-bold leading-tight">Tomaquin</h1>
+            <h1 className="text-lg font-bold leading-tight">Tomaquin Building</h1>
             <p className="text-xs text-text-muted">Building Management</p>
           </div>
         </div>
