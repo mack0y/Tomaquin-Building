@@ -103,7 +103,7 @@ export function Modal({ isOpen, onClose, title, children }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+      <div className="relative mx-2 sm:mx-4 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
           <button
