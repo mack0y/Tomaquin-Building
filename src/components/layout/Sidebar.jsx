@@ -11,6 +11,8 @@ import {
   X,
 } from 'lucide-react'
 import { useSupabaseQuery } from '../../hooks/useSupabase'
+import { useNotifications } from '../../hooks/useNotifications'
+import { getCurrentMonth } from '../../lib/utils'
 import { useSidebar } from './Layout'
 
 const navItems = [
@@ -27,30 +29,28 @@ export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useSidebar()
   const location = useLocation()
 
-  const { data: overduePayments } = useSupabaseQuery('rent_payments', {
-    select: 'id',
-    filters: [{ column: 'status', value: 'overdue' }],
+  const { month: filterMonth, year: filterYear } = getCurrentMonth()
+
+  // Fetch data for notifications
+  const { data: units } = useSupabaseQuery('units', { order: { column: 'unit_number', ascending: true } })
+  const { data: tenants } = useSupabaseQuery('tenants', { select: '*, units(unit_number)' })
+  const { data: payments } = useSupabaseQuery('rent_payments', {
+    select: 'amount, status, period_month, period_year',
+    filters: [
+      { column: 'period_month', value: filterMonth },
+      { column: 'period_year', value: filterYear },
+    ],
   })
-
-  const { data: recurringExpenses } = useSupabaseQuery('recurring_expenses', {
-    select: 'id, category, day_of_month',
+  const { data: utilityReadings } = useSupabaseQuery('utility_readings', {
+    select: 'unit_id, billing_period_month, billing_period_year',
   })
+  const { data: expenses } = useSupabaseQuery('expenses', { select: 'id, category, expense_date' })
+  const { data: recurringExpenses } = useSupabaseQuery('recurring_expenses', { select: 'id, category, description, amount, day_of_month' })
 
-  const { data: allExpenses } = useSupabaseQuery('expenses', {
-    select: 'id, category, expense_date',
+  const { notificationCount } = useNotifications({
+    units, tenants, payments, utilityReadings, expenses, recurringExpenses,
+    filterMonth, filterYear,
   })
-
-  // Count recurring expenses not yet generated for current month
-  const current = new Date()
-  const currentMonth = current.getMonth() + 1
-  const currentYear = current.getFullYear()
-  const unmatchedRecurringCount = (recurringExpenses || []).filter((re) => {
-    const targetDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(re.day_of_month).padStart(2, '0')}`
-    return !(allExpenses || []).some((e) => e.category === re.category && e.expense_date === targetDate)
-  }).length
-
-  const overdueCount = overduePayments?.length || 0
-  const totalBadgeCount = overdueCount + unmatchedRecurringCount
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -90,14 +90,9 @@ export default function Sidebar() {
           >
             <item.icon className="h-5 w-5 transition-transform duration-200 group-hover:scale-110" />
             <span className="flex-1">{item.label}</span>
-            {item.badge === 'payments' && overdueCount > 0 && (
-              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1.5 text-[10px] font-bold text-white">
-                {overdueCount > 99 ? '99+' : overdueCount}
-              </span>
-            )}
-            {item.badge === 'dashboard' && totalBadgeCount > 0 && (
+            {item.badge === 'dashboard' && notificationCount > 0 && (
               <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-warning px-1.5 text-[10px] font-bold text-white">
-                {totalBadgeCount > 99 ? '99+' : totalBadgeCount}
+                {notificationCount > 99 ? '99+' : notificationCount}
               </span>
             )}
           </NavLink>
