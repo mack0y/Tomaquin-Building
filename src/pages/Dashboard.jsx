@@ -198,7 +198,7 @@ export default function Dashboard() {
       })
       toast.success('Payment recorded!')
       setShowPaymentModal(false)
-      setPaymentForm({ tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], period_month: current.month, period_year: current.year, status: 'paid', notes: '' })
+      setPaymentForm({ tenant_id: '', amount: '', payment_date: new Date().toISOString().split('T')[0], period_month: filterMonth, period_year: filterYear, status: 'paid', notes: '' })
       refetchPayments()
     } catch (err) {
       toast.error('Failed: ' + err.message)
@@ -242,6 +242,8 @@ export default function Dashboard() {
 
   const handleRecurringSubmit = async (e) => {
     e.preventDefault()
+    if (!recurringForm.category) return toast.error('Please select a category')
+    if (!recurringForm.amount) return toast.error('Please enter an amount')
     const payload = {
       category: recurringForm.category,
       description: recurringForm.description,
@@ -263,10 +265,14 @@ export default function Dashboard() {
     refetchRecurring()
   }
 
-  const handleDeleteRecurring = async (recurring) => {
-    const { error } = await removeRecurring(recurring.id)
+  const [deleteRecurringTarget, setDeleteRecurringTarget] = useState(null)
+
+  const handleDeleteRecurring = async () => {
+    if (!deleteRecurringTarget) return
+    const { error } = await removeRecurring(deleteRecurringTarget.id)
     if (error) return toast.error('Failed to delete: ' + error.message)
     toast.success('Template deleted')
+    setDeleteRecurringTarget(null)
     refetchRecurring()
   }
 
@@ -477,7 +483,7 @@ export default function Dashboard() {
                   }}>
                     Edit
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => handleDeleteRecurring(re)}>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteRecurringTarget(re)}>
                     <span className="text-danger">Delete</span>
                   </Button>
                 </div>
@@ -615,6 +621,16 @@ export default function Dashboard() {
           </div>
         </form>
       </Modal>
+
+      {/* Recurring Delete Confirm */}
+      <ConfirmDialog
+        isOpen={!!deleteRecurringTarget}
+        onClose={() => setDeleteRecurringTarget(null)}
+        onConfirm={handleDeleteRecurring}
+        title="Delete Recurring Template"
+        message={`Are you sure you want to delete ${deleteRecurringTarget?.description || deleteRecurringTarget?.category}? This cannot be undone.`}
+        confirmLabel="Delete"
+      />
 
       {/* Recurring Template Modal */}
       <Modal isOpen={showRecurringModal} onClose={() => { setShowRecurringModal(false); setEditingRecurring(null) }} title={editingRecurring ? 'Edit Recurring Template' : 'Add Recurring Template'}>
