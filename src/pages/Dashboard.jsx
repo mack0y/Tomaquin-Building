@@ -17,6 +17,8 @@ import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { useToast } from '../components/ui/Toast'
 import { Card, StatusBadge, Button, Modal, Input, Select } from '../components/ui'
+import { Skeleton, SkeletonCard } from '../components/ui/Skeleton'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const FLOORS = [1, 2, 3]
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
@@ -41,15 +43,15 @@ export default function Dashboard() {
   })
 
   // Data queries
-  const { data: units, loading: unitsLoading } = useSupabaseQuery('units', {
+  const { data: units, loading: unitsLoading, error: unitsError } = useSupabaseQuery('units', {
     order: { column: 'unit_number', ascending: true },
   })
 
-  const { data: tenants } = useSupabaseQuery('tenants', {
+  const { data: tenants, error: tenantsError } = useSupabaseQuery('tenants', {
     select: '*, units(unit_number)',
   })
 
-  const { data: payments, refetch: refetchPayments } = useSupabaseQuery('rent_payments', {
+  const { data: payments, refetch: refetchPayments, error: paymentsError } = useSupabaseQuery('rent_payments', {
     select: '*, tenants(full_name), units(unit_number)',
     order: { column: 'created_at', ascending: false },
     filters: [
@@ -74,20 +76,23 @@ export default function Dashboard() {
     ],
   })
 
-  const { data: expenses, refetch: refetchExpenses } = useSupabaseQuery('expenses', {
+  const { data: expenses, refetch: refetchExpenses, error: expensesError } = useSupabaseQuery('expenses', {
     order: { column: 'expense_date', ascending: false },
   })
 
-  const { data: utilityReadings } = useSupabaseQuery('utility_readings', {
+  const { data: utilityReadings, error: utilitiesError } = useSupabaseQuery('utility_readings', {
     select: 'unit_id, total_cost, billing_period_month, billing_period_year',
   })
 
-  const { data: recurringExpenses, refetch: refetchRecurring } = useSupabaseQuery('recurring_expenses', {
+  const { data: recurringExpenses, refetch: refetchRecurring, error: recurringError } = useSupabaseQuery('recurring_expenses', {
     order: { column: 'category', ascending: true },
   })
 
   const { insert: insertPayment } = useSupabaseMutation('rent_payments')
   const { insert: insertExpense } = useSupabaseMutation('expenses')
+
+  // Generate recurring dialog
+  const [recurringTarget, setRecurringTarget] = useState(null)
 
 
   // Stats
@@ -199,28 +204,51 @@ export default function Dashboard() {
     }
   }
 
-  const handleGenerateRecurring = async (recurring) => {
-    if (!confirm(`Generate ${formatCurrency(recurring.amount)} — ${recurring.description || recurring.category} for ${formatMonthYear(current.month, current.year)}?`)) return
+  const handleGenerateRecurring = async () => {
+    if (!recurringTarget) return
     try {
       await insertExpense({
-        category: recurring.category,
-        description: recurring.description,
-        amount: recurring.amount,
-        expense_date: `${current.year}-${String(current.month).padStart(2, '0')}-${String(recurring.day_of_month).padStart(2, '0')}`,
+        category: recurringTarget.category,
+        description: recurringTarget.description,
+        amount: recurringTarget.amount,
+        expense_date: `${current.year}-${String(current.month).padStart(2, '0')}-${String(recurringTarget.day_of_month).padStart(2, '0')}`,
       })
-      toast.success(`${recurring.description || recurring.category} generated!`)
+      toast.success(`${recurringTarget.description || recurringTarget.category} generated!`)
       refetchExpenses()
     } catch (err) {
       toast.error('Failed: ' + err.message)
     }
+    setRecurringTarget(null)
   }
 
   if (unitsLoading) {
-    return <div className="flex h-64 items-center justify-center text-text-secondary">Loading dashboard...</div>
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-3">
+          {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-36" />)}
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
+    )
   }
+
+  const queryError = unitsError || tenantsError || paymentsError || expensesError || utilitiesError || recurringError
 
   return (
     <div className="space-y-6">
+      {/* Error Banner */}
+      {queryError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-danger">
+            Failed to load data: {queryError}
+          </p>
+        </div>
+      )}
       {/* Quick Actions Bar */}
       <div className="flex flex-wrap gap-3">
         <Button onClick={() => setShowPaymentModal(true)}>
@@ -366,7 +394,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-danger">{formatCurrency(re.amount)}</span>
-                  <Button variant="ghost" size="sm" onClick={() => handleGenerateRecurring(re)}>
+                  <Button variant="ghost" size="sm" onClick={() => setRecurringTarget(re)}>
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -504,6 +532,16 @@ export default function Dashboard() {
           </div>
         </form>
       </Modal>
+
+      {/* Recurring Expense Confirm */}
+      <ConfirmDialog
+        isOpen={!!recurringTarget}
+        onClose={() => setRecurringTarget(null)}
+        onConfirm={handleGenerateRecurring}
+        title="Generate Recurring Expense"
+        message={`Generate ${recurringTarget ? formatCurrency(recurringTarget.amount) : ''} — ${recurringTarget?.description || recurringTarget?.category || ''} for ${formatMonthYear(current.month, current.year)}?`}
+        confirmLabel="Generate"
+      />
     </div>
   )
 }

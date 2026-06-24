@@ -3,7 +3,7 @@ import { BarChart3, Download, Printer } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts'
 import { useSupabaseQuery } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
-import { Card, Button, Select } from '../components/ui'
+import { Card, Button, Select, Input } from '../components/ui'
 import { Skeleton, SkeletonCard, SkeletonTable } from '../components/ui/Skeleton'
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
@@ -15,25 +15,64 @@ export default function Reports() {
   const [reportType, setReportType] = useState('yearly')
   const [filterMonth, setFilterMonth] = useState(current.month)
   const [filterYear, setFilterYear] = useState(current.year)
+  const [customStart, setCustomStart] = useState(`${current.year}-${String(current.month).padStart(2, '0')}-01`)
+  const [customEnd, setCustomEnd] = useState(new Date(current.year, current.month, 0).toISOString().split('T')[0])
 
-  // All payments for the year
-  const { data: allPayments, loading: loadingPayments } = useSupabaseQuery('rent_payments', {
-    select: 'amount, status, period_month, period_year',
-    filters: [{ column: 'period_year', value: filterYear }],
+  // All payments for the year (or custom range)
+  const { data: allPayments, loading: loadingPayments, error: paymentsError } = useSupabaseQuery('rent_payments', {
+    select: 'amount, status, period_month, period_year, payment_date',
+    filters: reportType === 'custom' ? [] : [{ column: 'period_year', value: filterYear }],
   })
 
-  // All expenses for the year
-  const { data: allExpenses, loading: loadingExpenses } = useSupabaseQuery('expenses', {
+  // All expenses for the year (or custom range)
+  const { data: allExpenses, loading: loadingExpenses, error: expensesError } = useSupabaseQuery('expenses', {
     select: 'amount, category, expense_date',
   })
 
   // Units
-  const { data: units, loading: loadingUnits } = useSupabaseQuery('units', {
+  const { data: units, loading: loadingUnits, error: unitsError } = useSupabaseQuery('units', {
     select: 'id, status, floor',
   })
 
+  // Custom range filtering
+  const isCustomRange = reportType === 'custom'
+  const customStartDate = isCustomRange ? new Date(customStart) : null
+  const customEndDate = isCustomRange ? new Date(customEnd) : null
+
+  // Filter payments/expenses by custom range if needed
+  const filteredPayments = useMemo(() => {
+    if (!isCustomRange) return allPayments
+    return allPayments.filter((p) => {
+      const d = p.payment_date ? new Date(p.payment_date) : null
+      return d && d >= customStartDate && d <= customEndDate
+    })
+  }, [allPayments, isCustomRange, customStartDate, customEndDate])
+
+  const filteredExpensesForRange = useMemo(() => {
+    if (!isCustomRange) return allExpenses
+    return allExpenses.filter((e) => {
+      const d = new Date(e.expense_date)
+      return d >= customStartDate && d <= customEndDate
+    })
+  }, [allExpenses, isCustomRange, customStartDate, customEndDate])
+
   // Monthly data
   const monthlyData = useMemo(() => {
+    if (isCustomRange) {
+      // For custom range, create a single aggregated entry
+      const totalPaid = filteredPayments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0)
+      const totalExpected = filteredPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+      const totalExpenses = filteredExpensesForRange.reduce((sum, e) => sum + Number(e.amount), 0)
+      return [{
+        name: `${customStart} — ${customEnd}`,
+        month: 0,
+        income: totalPaid,
+        expected: totalExpected,
+        expenses: totalExpenses,
+        net: totalPaid - totalExpenses,
+        collectionRate: totalExpected > 0 ? ((totalPaid / totalExpected) * 100).toFixed(0) : 0,
+      }]
+    }
     return MONTHS.map((m) => {
       const monthPayments = allPayments.filter(
         (p) => p.period_month === m.value && p.period_year === filterYear && p.status === 'paid'
@@ -58,34 +97,47 @@ export default function Reports() {
         collectionRate: totalExpected > 0 ? ((totalPaid / totalExpected) * 100).toFixed(0) : 0,
       }
     })
-  }, [allPayments, allExpenses, filterYear])
+  }, [allPayments, allExpenses, filterYear, isCustomRange, filteredPayments, filteredExpensesForRange, customStart, customEnd])
 
   // Selected month detail
   const monthDetail = useMemo(() => {
+    if (isCustomRange) return monthlyData[0] || { income: 0, expenses: 0, net: 0, collectionRate: 0 }
     const m = monthlyData.find((d) => d.month === filterMonth)
     return m || { income: 0, expenses: 0, net: 0, collectionRate: 0 }
-  }, [monthlyData, filterMonth])
+  }, [monthlyData, filterMonth, isCustomRange])
 
-  // Yearly totals
+  // Totals
   const yearlyTotals = useMemo(() => {
+    if (isCustomRange) {
+      return {
+        totalIncome: monthDetail.income,
+        totalExpenses: monthDetail.expenses,
+        net: monthDetail.net,
+        avgCollection: parseFloat(monthDetail.collectionRate) || 0,
+      }
+    }
     const totalIncome = monthlyData.reduce((sum, m) => sum + m.income, 0)
     const totalExpenses = monthlyData.reduce((sum, m) => sum + m.expenses, 0)
     const avgCollection = monthlyData.reduce((sum, m) => sum + parseFloat(m.collectionRate), 0) / 12
     return { totalIncome, totalExpenses, net: totalIncome - totalExpenses, avgCollection }
-  }, [monthlyData])
+  }, [monthlyData, isCustomRange, monthDetail])
 
-  // Expense breakdown for the year
+  // Expense breakdown
   const yearlyExpenseBreakdown = useMemo(() => {
+    const source = isCustomRange ? filteredExpensesForRange : allExpenses
     const byCategory = {}
-    allExpenses
-      .filter((e) => new Date(e.expense_date).getFullYear() === filterYear)
+    source
+      .filter((e) => {
+        if (isCustomRange) return true
+        return new Date(e.expense_date).getFullYear() === filterYear
+      })
       .forEach((e) => {
         byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount)
       })
     return Object.entries(byCategory)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
-  }, [allExpenses, filterYear])
+  }, [allExpenses, filterYear, isCustomRange, filteredExpensesForRange])
 
   // Occupancy stats
   const occupancy = useMemo(() => {
@@ -104,7 +156,7 @@ export default function Reports() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `tomaquin-report-${filterYear}.csv`
+    a.download = `tomaquin-report-${isCustomRange ? `${customStart}-to-${customEnd}` : filterYear}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -137,6 +189,15 @@ export default function Reports() {
         </>
       ) : (
       <>
+      {/* Error Banner */}
+      {(paymentsError || expensesError || unitsError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-danger">
+            Failed to load data: {paymentsError || expensesError || unitsError}
+          </p>
+        </div>
+      )}
+
       {/* Report Type & Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
@@ -152,6 +213,12 @@ export default function Reports() {
           >
             Yearly
           </Button>
+          <Button
+            variant={reportType === 'custom' ? 'primary' : 'secondary'}
+            onClick={() => setReportType('custom')}
+          >
+            Custom Range
+          </Button>
         </div>
         {reportType === 'monthly' && (
           <Select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
@@ -160,11 +227,31 @@ export default function Reports() {
             ))}
           </Select>
         )}
-        <Select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
-          {YEARS.map((y) => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </Select>
+        {reportType === 'custom' ? (
+          <>
+            <Input
+              label="From"
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="w-auto"
+            />
+            <span className="text-text-secondary mt-6">to</span>
+            <Input
+              label="To"
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="w-auto"
+            />
+          </>
+        ) : (
+          <Select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+            {YEARS.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </Select>
+        )}
         <div className="flex-1" />
         <Button variant="secondary" onClick={handleExportCSV}>
           <Download className="h-4 w-4" />
@@ -176,17 +263,46 @@ export default function Reports() {
         </Button>
       </div>
 
+      {/* Custom Range Summary */}
+      {isCustomRange && (
+        <Card>
+          <h3 className="mb-4 font-semibold text-text-primary">
+            {formatMonthYear(new Date(customStart).getMonth() + 1, new Date(customStart).getFullYear())} — {formatMonthYear(new Date(customEnd).getMonth() + 1, new Date(customEnd).getFullYear())} Summary
+          </h3>
+          <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+            <div>
+              <p className="text-sm text-text-secondary">Income Collected</p>
+              <p className="text-xl font-bold text-success">{formatCurrency(monthDetail.income)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-text-secondary">Expenses</p>
+              <p className="text-xl font-bold text-danger">{formatCurrency(monthDetail.expenses)}</p>
+            </div>
+            <div>
+              <p className="text-sm text-text-secondary">Net</p>
+              <p className={`text-xl font-bold ${monthDetail.net >= 0 ? 'text-success' : 'text-danger'}`}>
+                {formatCurrency(monthDetail.net)}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-text-secondary">Collection Rate</p>
+              <p className="text-xl font-bold text-primary">{monthDetail.collectionRate}%</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Yearly Summary */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
           <p className="text-sm text-text-secondary">Total Revenue</p>
           <p className="mt-1 text-2xl font-bold text-success">{formatCurrency(yearlyTotals.totalIncome)}</p>
-          <p className="text-xs text-text-muted">{filterYear}</p>
+          <p className="text-xs text-text-muted">{isCustomRange ? 'Custom Range' : filterYear}</p>
         </Card>
         <Card>
           <p className="text-sm text-text-secondary">Total Expenses</p>
           <p className="mt-1 text-2xl font-bold text-danger">{formatCurrency(yearlyTotals.totalExpenses)}</p>
-          <p className="text-xs text-text-muted">{filterYear}</p>
+          <p className="text-xs text-text-muted">{isCustomRange ? 'Custom Range' : filterYear}</p>
         </Card>
         <Card>
           <p className="text-sm text-text-secondary">Net Profit</p>
@@ -234,7 +350,7 @@ export default function Reports() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Revenue vs Expenses */}
         <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Revenue vs Expenses ({filterYear})</h3>
+          <h3 className="mb-4 font-semibold text-text-primary">Revenue vs Expenses ({isCustomRange ? 'Custom Range' : filterYear})</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -250,7 +366,7 @@ export default function Reports() {
 
         {/* Net Cashflow Trend */}
         <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Net Cashflow Trend ({filterYear})</h3>
+          <h3 className="mb-4 font-semibold text-text-primary">Net Cashflow Trend ({isCustomRange ? 'Custom Range' : filterYear})</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -264,7 +380,7 @@ export default function Reports() {
 
         {/* Expense Breakdown */}
         <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Expense Breakdown ({filterYear})</h3>
+          <h3 className="mb-4 font-semibold text-text-primary">Expense Breakdown ({isCustomRange ? 'Custom Range' : filterYear})</h3>
           {yearlyExpenseBreakdown.length === 0 ? (
             <div className="flex h-[300px] items-center justify-center text-text-muted">No expenses recorded</div>
           ) : (
@@ -292,7 +408,7 @@ export default function Reports() {
 
         {/* Collection Rate */}
         <Card>
-          <h3 className="mb-4 font-semibold text-text-primary">Collection Rate ({filterYear})</h3>
+          <h3 className="mb-4 font-semibold text-text-primary">Collection Rate ({isCustomRange ? 'Custom Range' : filterYear})</h3>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -305,7 +421,8 @@ export default function Reports() {
         </Card>
       </div>
 
-      {/* Yearly Summary Table */}
+      {/* Summary Table */}
+      {!isCustomRange && (
       <Card>
         <h3 className="mb-4 font-semibold text-text-primary">Monthly Summary Table ({filterYear})</h3>
         <div className="overflow-x-auto">
@@ -344,6 +461,7 @@ export default function Reports() {
           </table>
         </div>
       </Card>
+      )}
       </>
       )}
     </div>

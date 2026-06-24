@@ -3,6 +3,7 @@ import { Zap, Droplets, Plus, Edit2 } from 'lucide-react'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { Card, CardTitle, Button, Modal, Input, Select, EmptyState } from '../components/ui'
+import { useToast } from '../components/ui/Toast'
 import { SkeletonTable } from '../components/ui/Skeleton'
 
 const UTILITY_TYPES = [
@@ -24,7 +25,7 @@ export default function Utilities() {
     rate_per_unit: 0, reading_date: '', billing_period_month: current.month, billing_period_year: current.year,
   })
 
-  const { data: readings, loading, refetch } = useSupabaseQuery('utility_readings', {
+  const { data: readings, loading, refetch, error: readingsError } = useSupabaseQuery('utility_readings', {
     select: '*, units(unit_number, floor)',
     order: { column: 'reading_date', ascending: false },
     filters: [
@@ -34,12 +35,14 @@ export default function Utilities() {
     ],
   })
 
-  const { data: units } = useSupabaseQuery('units', {
+  const { data: units, error: unitsError } = useSupabaseQuery('units', {
     select: 'id, unit_number, floor',
     order: { column: 'unit_number', ascending: true },
   })
 
   const { insert, update, loading: mutating } = useSupabaseMutation('utility_readings')
+
+  const toast = useToast()
 
   const stats = useMemo(() => {
     const total = readings.reduce((sum, r) => sum + Number(r.total_cost || 0), 0)
@@ -61,9 +64,13 @@ export default function Utilities() {
       reading_date: form.reading_date || new Date().toISOString().split('T')[0],
     }
     if (editing) {
-      await update(editing.id, payload)
+      const { error } = await update(editing.id, payload)
+      if (error) return toast.error('Failed to update reading: ' + error.message)
+      toast.success('Reading updated successfully')
     } else {
-      await insert(payload)
+      const { error } = await insert(payload)
+      if (error) return toast.error('Failed to record reading: ' + error.message)
+      toast.success('Reading recorded successfully')
     }
     setShowModal(false)
     setEditing(null)
@@ -99,6 +106,15 @@ export default function Utilities() {
 
   return (
     <div className="space-y-6">
+      {/* Error Banner */}
+      {(readingsError || unitsError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-danger">
+            Failed to load data: {readingsError || unitsError}
+          </p>
+        </div>
+      )}
+
       {/* Utility Type Tabs */}
       <div className="flex gap-3">
         {UTILITY_TYPES.map((type) => {

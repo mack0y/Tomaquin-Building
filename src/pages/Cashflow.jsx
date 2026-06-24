@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
 import { Card, Button, Modal, Input, Select, EmptyState } from '../components/ui'
+import { useToast } from '../components/ui/Toast'
 import { Skeleton, SkeletonCard, SkeletonTable } from '../components/ui/Skeleton'
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: new Date(0, i).toLocaleString('en', { month: 'long' }) }))
@@ -24,7 +25,7 @@ export default function Cashflow() {
   })
 
   // Income: rent payments for the period
-  const { data: payments, loading: loadingPayments } = useSupabaseQuery('rent_payments', {
+  const { data: payments, loading: loadingPayments, error: paymentsError } = useSupabaseQuery('rent_payments', {
     select: 'amount, status',
     filters: [
       { column: 'period_month', value: filterMonth },
@@ -41,7 +42,7 @@ export default function Cashflow() {
   })
 
   // Expenses for the period (all expenses, filtered client-side by month/year)
-  const { data: expenses, loading: loadingExpenses, refetch: refetchExpenses } = useSupabaseQuery('expenses', {
+  const { data: expenses, loading: loadingExpenses, refetch: refetchExpenses, error: expensesError } = useSupabaseQuery('expenses', {
     order: { column: 'expense_date', ascending: false },
   })
 
@@ -52,6 +53,8 @@ export default function Cashflow() {
   })
 
   const { insert: insertExpense, update: updateExpense, remove: removeExpense, loading: mutating } = useSupabaseMutation('expenses')
+
+  const toast = useToast()
 
   // Filtered expenses by month
   const filteredExpenses = useMemo(() => {
@@ -113,9 +116,13 @@ export default function Cashflow() {
       expense_date: expenseForm.expense_date,
     }
     if (editingExpense) {
-      await updateExpense(editingExpense.id, payload)
+      const { error } = await updateExpense(editingExpense.id, payload)
+      if (error) return toast.error('Failed to update expense: ' + error.message)
+      toast.success('Expense updated successfully')
     } else {
-      await insertExpense(payload)
+      const { error } = await insertExpense(payload)
+      if (error) return toast.error('Failed to add expense: ' + error.message)
+      toast.success('Expense added successfully')
     }
     setShowExpenseModal(false)
     setEditingExpense(null)
@@ -138,13 +145,24 @@ export default function Cashflow() {
 
   const handleDeleteExpense = async () => {
     if (!deleteTarget) return
-    await removeExpense(deleteTarget.id)
+    const { error } = await removeExpense(deleteTarget.id)
+    if (error) return toast.error('Failed to delete expense: ' + error.message)
+    toast.success('Expense deleted')
     setDeleteTarget(null)
     refetchExpenses()
   }
 
   return (
     <div className="space-y-6">
+      {/* Error Banner */}
+      {(paymentsError || expensesError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-danger">
+            Failed to load data: {paymentsError || expensesError}
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <>
           {/* Summary Cards Skeleton */}

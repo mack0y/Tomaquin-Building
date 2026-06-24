@@ -22,7 +22,7 @@ export default function Payments() {
     period_month: current.month, period_year: current.year, status: 'pending', notes: '',
   })
 
-  const { data: payments, loading, refetch } = useSupabaseQuery('rent_payments', {
+  const { data: payments, loading, refetch, error: paymentsError } = useSupabaseQuery('rent_payments', {
     select: '*, tenants(full_name), units(unit_number)',
     order: { column: 'created_at', ascending: false },
     filters: [
@@ -32,7 +32,7 @@ export default function Payments() {
     ],
   })
 
-  const { data: tenants } = useSupabaseQuery('tenants', {
+  const { data: tenants, error: tenantsError } = useSupabaseQuery('tenants', {
     select: '*, units(unit_number)',
     order: { column: 'full_name', ascending: true },
   })
@@ -119,6 +119,15 @@ export default function Payments() {
 
   return (
     <div className="space-y-6">
+      {/* Error Banner */}
+      {(paymentsError || tenantsError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-danger">
+            Failed to load data: {paymentsError || tenantsError}
+          </p>
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>
