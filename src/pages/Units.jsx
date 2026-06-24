@@ -4,6 +4,8 @@ import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency } from '../lib/utils'
 import { useToast } from '../components/ui/Toast'
 import { Card, CardTitle, Button, StatusBadge, Modal, Input, Select, EmptyState } from '../components/ui'
+import { SkeletonCard } from '../components/ui/Skeleton'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const FLOORS = [1, 2, 3]
 const STATUSES = ['occupied', 'vacant', 'maintenance']
@@ -19,6 +21,7 @@ export default function Units() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingUnit, setEditingUnit] = useState(null)
   const [form, setForm] = useState(emptyUnit)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const { data: units, loading, refetch } = useSupabaseQuery('units', {
     order: { column: 'unit_number', ascending: true },
@@ -73,16 +76,16 @@ export default function Units() {
     setShowAddModal(true)
   }
 
-  const handleDelete = async (unit) => {
-    if (confirm(`Delete unit ${unit.unit_number}?`)) {
-      try {
-        await remove(unit.id)
-        toast.success('Unit deleted')
-      } catch (err) {
-        toast.error('Failed to delete unit: ' + err.message)
-      }
-      refetch()
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    try {
+      await remove(deleteTarget.id)
+      toast.success('Unit deleted')
+    } catch (err) {
+      toast.error('Failed to delete unit: ' + err.message)
     }
+    setDeleteTarget(null)
+    refetch()
   }
 
   const openAddModal = () => {
@@ -95,22 +98,28 @@ export default function Units() {
     <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card>
-          <p className="text-sm text-text-secondary">Total Units</p>
-          <p className="mt-1 text-2xl font-bold text-text-primary">{stats.total}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-secondary">Occupied</p>
-          <p className="mt-1 text-2xl font-bold text-green-600">{stats.occupied}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-secondary">Vacant</p>
-          <p className="mt-1 text-2xl font-bold text-red-600">{stats.vacant}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-secondary">Maintenance</p>
-          <p className="mt-1 text-2xl font-bold text-yellow-600">{stats.maintenance}</p>
-        </Card>
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+        ) : (
+          <>
+            <Card className="hover:shadow-md transition-shadow duration-200">
+              <p className="text-sm text-text-secondary">Total Units</p>
+              <p className="mt-1 text-2xl font-bold text-text-primary">{stats.total}</p>
+            </Card>
+            <Card className="hover:shadow-md transition-shadow duration-200">
+              <p className="text-sm text-text-secondary">Occupied</p>
+              <p className="mt-1 text-2xl font-bold text-green-600">{stats.occupied}</p>
+            </Card>
+            <Card className="hover:shadow-md transition-shadow duration-200">
+              <p className="text-sm text-text-secondary">Vacant</p>
+              <p className="mt-1 text-2xl font-bold text-red-600">{stats.vacant}</p>
+            </Card>
+            <Card className="hover:shadow-md transition-shadow duration-200">
+              <p className="text-sm text-text-secondary">Maintenance</p>
+              <p className="mt-1 text-2xl font-bold text-yellow-600">{stats.maintenance}</p>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Header */}
@@ -124,7 +133,18 @@ export default function Units() {
 
       {/* Units by Floor */}
       {loading ? (
-        <div className="py-12 text-center text-text-secondary">Loading units...</div>
+        <div className="space-y-6">
+          {FLOORS.map((floor) => (
+            <div key={floor}>
+              <div className="mb-3 h-4 w-20 animate-pulse rounded bg-gray-200" />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : units.length === 0 ? (
         <EmptyState
           icon={Building2}
@@ -140,7 +160,7 @@ export default function Units() {
             </h3>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {unitsByFloor[floor]?.map((unit) => (
-                <Card key={unit.id} className="relative">
+                <Card key={unit.id} className="group relative hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200">
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-lg font-bold text-text-primary">
@@ -152,20 +172,12 @@ export default function Units() {
                     </div>
                     <StatusBadge status={unit.status} />
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(unit)}
-                    >
+                  <div className="mt-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <Button variant="ghost" size="sm" onClick={() => handleEdit(unit)}>
                       <Edit className="h-3.5 w-3.5" />
                       Edit
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(unit)}
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(unit)}>
                       <Trash2 className="h-3.5 w-3.5 text-danger" />
                     </Button>
                   </div>
@@ -179,70 +191,34 @@ export default function Units() {
       {/* Add/Edit Modal */}
       <Modal
         isOpen={showAddModal}
-        onClose={() => {
-          setShowAddModal(false)
-          setEditingUnit(null)
-        }}
+        onClose={() => { setShowAddModal(false); setEditingUnit(null) }}
         title={editingUnit ? 'Edit Unit' : 'Add Unit'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Unit Number"
-            placeholder="e.g. 101"
-            value={form.unit_number}
-            onChange={(e) => setForm({ ...form, unit_number: e.target.value })}
-            required
-          />
-          <Select
-            label="Floor"
-            value={form.floor}
-            onChange={(e) => setForm({ ...form, floor: parseInt(e.target.value) })}
-          >
-            {FLOORS.map((f) => (
-              <option key={f} value={f}>
-                Floor {f}
-              </option>
-            ))}
+          <Input label="Unit Number" placeholder="e.g. 101" value={form.unit_number} onChange={(e) => setForm({ ...form, unit_number: e.target.value })} required />
+          <Select label="Floor" value={form.floor} onChange={(e) => setForm({ ...form, floor: parseInt(e.target.value) })}>
+            {FLOORS.map((f) => <option key={f} value={f}>Floor {f}</option>)}
           </Select>
-          <Input
-            label="Monthly Rent (₱)"
-            type="number"
-            min="0"
-            step="100"
-            value={form.rent_amount}
-            onChange={(e) =>
-              setForm({ ...form, rent_amount: parseFloat(e.target.value) || 0 })
-            }
-            required
-          />
-          <Select
-            label="Status"
-            value={form.status}
-            onChange={(e) => setForm({ ...form, status: e.target.value })}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </option>
-            ))}
+          <Input label="Monthly Rent (₱)" type="number" min="0" step="100" value={form.rent_amount} onChange={(e) => setForm({ ...form, rent_amount: parseFloat(e.target.value) || 0 })} required />
+          <Select label="Status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+            {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
           </Select>
           <div className="flex justify-end gap-3 pt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setShowAddModal(false)
-                setEditingUnit(null)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={mutating}>
-              {editingUnit ? 'Save Changes' : 'Add Unit'}
-            </Button>
+            <Button type="button" variant="secondary" onClick={() => { setShowAddModal(false); setEditingUnit(null) }}>Cancel</Button>
+            <Button type="submit" disabled={mutating}>{editingUnit ? 'Save Changes' : 'Add Unit'}</Button>
           </div>
         </form>
       </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Unit"
+        message={`Are you sure you want to delete Unit ${deleteTarget?.unit_number}? This action cannot be undone and will also remove any linked tenant data.`}
+        confirmLabel="Delete Unit"
+      />
     </div>
   )
 }

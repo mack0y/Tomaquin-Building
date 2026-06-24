@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { TrendingUp, TrendingDown, DollarSign, Plus, Edit2, Trash2 } from 'lucide-react'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { formatCurrency, getCurrentMonth, formatMonthYear } from '../lib/utils'
@@ -130,11 +131,13 @@ export default function Cashflow() {
     setShowExpenseModal(true)
   }
 
-  const handleDeleteExpense = async (expense) => {
-    if (confirm(`Delete expense: ${expense.category} - ${formatCurrency(expense.amount)}?`)) {
-      await removeExpense(expense.id)
-      refetchExpenses()
-    }
+  const [deleteTarget, setDeleteTarget] = useState(null)
+
+  const handleDeleteExpense = async () => {
+    if (!deleteTarget) return
+    await removeExpense(deleteTarget.id)
+    setDeleteTarget(null)
+    refetchExpenses()
   }
 
   return (
@@ -273,7 +276,7 @@ export default function Cashflow() {
                     <Button variant="ghost" size="sm" onClick={() => handleEditExpense(expense)}>
                       <Edit2 className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDeleteExpense(expense)}>
+                    <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(expense)}>
                       <Trash2 className="h-3.5 w-3.5 text-danger" />
                     </Button>
                   </td>
@@ -334,6 +337,16 @@ export default function Cashflow() {
           </div>
         </form>
       </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteExpense}
+        title="Delete Expense"
+        message={`Are you sure you want to delete ${deleteTarget?.category} — ${formatCurrency(deleteTarget?.amount || 0)}? This cannot be undone.`}
+        confirmLabel="Delete Expense"
+      />
     </div>
   )
 }

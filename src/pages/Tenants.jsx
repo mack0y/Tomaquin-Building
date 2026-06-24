@@ -4,6 +4,8 @@ import { useSupabaseQuery, useSupabaseMutation } from '../hooks/useSupabase'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/ui/Toast'
 import { Card, Button, StatusBadge, Modal, Input, Select, EmptyState } from '../components/ui'
+import { SkeletonCard } from '../components/ui/Skeleton'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const emptyTenant = {
   full_name: '',
@@ -19,6 +21,7 @@ export default function Tenants() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyTenant)
   const [search, setSearch] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const { data: tenants, loading, refetch } = useSupabaseQuery('tenants', {
     select: '*, units(unit_number, floor)',
@@ -44,7 +47,6 @@ export default function Tenants() {
     if (action === 'assign') {
       await supabase.from('units').update({ status: 'occupied' }).eq('id', unitId)
     } else if (action === 'unassign') {
-      // Check if any other tenant is assigned to this unit before marking vacant
       const { data: otherTenants } = await supabase
         .from('tenants')
         .select('id')
@@ -67,7 +69,6 @@ export default function Tenants() {
     }
     try {
       if (editing) {
-        // If unit changed, update old unit to vacant and new unit to occupied
         if (editing.unit_id !== payload.unit_id) {
           if (editing.unit_id) await autoUpdateUnitStatus(editing.unit_id, 'unassign', editing.id)
           if (payload.unit_id) await autoUpdateUnitStatus(payload.unit_id, 'assign')
@@ -101,24 +102,23 @@ export default function Tenants() {
     setShowModal(true)
   }
 
-  const handleDelete = async (tenant) => {
-    if (confirm(`Delete tenant ${tenant.full_name}?`)) {
-      try {
-        // Set the unit back to vacant when deleting a tenant
-        if (tenant.unit_id) await autoUpdateUnitStatus(tenant.unit_id, 'unassign', tenant.id)
-        await remove(tenant.id)
-        toast.success('Tenant deleted')
-      } catch (err) {
-        toast.error('Failed to delete tenant: ' + err.message)
-      }
-      refetch()
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    try {
+      if (deleteTarget.unit_id) await autoUpdateUnitStatus(deleteTarget.unit_id, 'unassign', deleteTarget.id)
+      await remove(deleteTarget.id)
+      toast.success('Tenant deleted')
+    } catch (err) {
+      toast.error('Failed to delete tenant: ' + err.message)
     }
+    setDeleteTarget(null)
+    refetch()
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-sm">
           <input
             id="search-tenants"
@@ -127,7 +127,7 @@ export default function Tenants() {
             placeholder="Search tenants..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-border bg-white px-4 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full rounded-lg border border-border bg-white px-4 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
           />
         </div>
         <Button onClick={() => { setForm(emptyTenant); setEditing(null); setShowModal(true) }}>
@@ -138,7 +138,11 @@ export default function Tenants() {
 
       {/* Tenant List */}
       {loading ? (
-        <div className="py-12 text-center text-text-secondary">Loading tenants...</div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Users}
@@ -149,7 +153,7 @@ export default function Tenants() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((tenant) => (
-            <Card key={tenant.id}>
+            <Card key={tenant.id} className="group hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="font-semibold text-text-primary">{tenant.full_name}</p>
@@ -178,12 +182,12 @@ export default function Tenants() {
                   </p>
                 )}
               </div>
-              <div className="mt-4 flex gap-2 border-t border-border pt-3">
+              <div className="mt-4 flex gap-2 border-t border-border pt-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                 <Button variant="ghost" size="sm" onClick={() => handleEdit(tenant)}>
                   <Edit className="h-3.5 w-3.5" />
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(tenant)}>
+                <Button variant="ghost" size="sm" onClick={() => setDeleteTarget(tenant)}>
                   <Trash2 className="h-3.5 w-3.5 text-danger" />
                 </Button>
               </div>
@@ -199,62 +203,35 @@ export default function Tenants() {
         title={editing ? 'Edit Tenant' : 'Add Tenant'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Full Name"
-            placeholder="Juan Dela Cruz"
-            value={form.full_name}
-            onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-            required
-          />
-          <Input
-            label="Phone"
-            placeholder="09171234567"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          />
-          <Input
-            label="Email"
-            type="email"
-            placeholder="juan@email.com"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-          <Select
-            label="Unit"
-            value={form.unit_id}
-            onChange={(e) => setForm({ ...form, unit_id: e.target.value })}
-          >
+          <Input label="Full Name" placeholder="Juan Dela Cruz" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
+          <Input label="Phone" placeholder="09171234567" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <Input label="Email" type="email" placeholder="juan@email.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <Select label="Unit" value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })}>
             <option value="">Unassigned</option>
             {units.map((u) => (
-              <option key={u.id} value={u.id}>
-                Unit {u.unit_number} (Floor {u.floor})
-              </option>
+              <option key={u.id} value={u.id}>Unit {u.unit_number} (Floor {u.floor})</option>
             ))}
           </Select>
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Lease Start"
-              type="date"
-              value={form.lease_start}
-              onChange={(e) => setForm({ ...form, lease_start: e.target.value })}
-            />
-            <Input
-              label="Lease End"
-              type="date"
-              value={form.lease_end}
-              onChange={(e) => setForm({ ...form, lease_end: e.target.value })}
-            />
+            <Input label="Lease Start" type="date" value={form.lease_start} onChange={(e) => setForm({ ...form, lease_start: e.target.value })} />
+            <Input label="Lease End" type="date" value={form.lease_end} onChange={(e) => setForm({ ...form, lease_end: e.target.value })} />
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => { setShowModal(false); setEditing(null) }}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={mutating}>
-              {editing ? 'Save Changes' : 'Add Tenant'}
-            </Button>
+            <Button type="button" variant="secondary" onClick={() => { setShowModal(false); setEditing(null) }}>Cancel</Button>
+            <Button type="submit" disabled={mutating}>{editing ? 'Save Changes' : 'Add Tenant'}</Button>
           </div>
         </form>
       </Modal>
+
+      {/* Delete Confirmation */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Tenant"
+        message={`Are you sure you want to delete ${deleteTarget?.full_name}? Their unit will be marked as vacant.`}
+        confirmLabel="Delete Tenant"
+      />
     </div>
   )
 }
