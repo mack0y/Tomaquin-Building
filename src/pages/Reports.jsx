@@ -221,7 +221,7 @@ export default function Reports() {
           </Button>
         </div>
         {reportType === 'monthly' && (
-          <Select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+          <Select id="report-month" name="report-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
             {MONTHS.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
@@ -246,7 +246,7 @@ export default function Reports() {
             />
           </>
         ) : (
-          <Select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+          <Select id="report-year" name="report-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
             {YEARS.map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}

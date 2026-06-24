@@ -216,12 +216,12 @@ export default function Cashflow() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+        <Select id="cashflow-month" name="cashflow-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
           {MONTHS.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </Select>
-        <Select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+        <Select id="cashflow-year" name="cashflow-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
           {YEARS.map((y) => (
             <option key={y} value={y}>{y}</option>
           ))}

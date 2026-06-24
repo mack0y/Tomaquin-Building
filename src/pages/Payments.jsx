@@ -162,17 +162,17 @@ export default function Payments() {
 
       {/* Filters & Actions */}
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
+        <Select id="payment-month" name="payment-month" value={filterMonth} onChange={(e) => setFilterMonth(parseInt(e.target.value))}>
           {MONTHS.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </Select>
-        <Select value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
+        <Select id="payment-year" name="payment-year" value={filterYear} onChange={(e) => setFilterYear(parseInt(e.target.value))}>
           {YEARS.map((y) => (
             <option key={y} value={y}>{y}</option>
           ))}
         </Select>
-        <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+        <Select id="payment-status" name="payment-status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           <option value="">All Status</option>
           {STATUSES.map((s) => (
             <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
