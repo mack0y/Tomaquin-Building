@@ -1,16 +1,65 @@
-# React + Vite
+# Tomaquin Building — Management System
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A personal-use web dashboard for tracking rental units, tenants, rent payments, utilities, cashflow, and financial reports for a 3-story building with 12 units.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Dashboard** — Quick actions, summary cards, unit profitability, recurring expenses, occupancy by floor, recent payments
+- **Units Management** — CRUD operations grouped by floor (3 floors × 4 units)
+- **Tenants Management** — CRUD with search, auto unit status updates on assign/delete
+- **Rent Payments** — Record, edit, filter by month/year/status (paid, pending, overdue, partial)
+- **Utilities** — Electric + water meter readings with auto cost calculation
+- **Cashflow** — Income vs expenses with bar/pie charts, expense CRUD
+- **Reports** — Monthly/yearly breakdowns, charts, CSV export
+- **Recurring Expenses** — Pre-configured monthly costs with one-click generation
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend:** React + Vite + Tailwind CSS v4
+- **UI:** Custom component library (Card, Button, Modal, StatusBadge, Toast)
+- **Charts:** Recharts
+- **Database:** Supabase (PostgreSQL)
+- **Icons:** Lucide React
+- **Currency:** PHP (₱)
 
-## Expanding the Oxlint configuration
+## Setup
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/mack0y/Tomaquin-Building.git
+   cd Tomaquin-Building
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Create a `.env` file with your Supabase credentials:
+   ```
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
+
+4. Run the SQL schema in Supabase SQL Editor (see `supabase/schema.sql` and `supabase/migrations/002_recurring_expenses.sql`)
+
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── layout/    — Sidebar, Header, Layout
+│   └── ui/        — Card, Button, Modal, Input, Select, Toast, etc.
+├── hooks/         — useSupabaseQuery, useSupabaseMutation
+├── lib/           — Supabase client, utility functions
+└── pages/         — Dashboard, Units, Tenants, Payments, Utilities, Cashflow, Reports
+```
+
+## License
+
+Private — for personal use.
